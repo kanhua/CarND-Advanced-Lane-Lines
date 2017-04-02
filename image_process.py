@@ -5,23 +5,26 @@ import os
 import pickle
 import matplotlib.pyplot as plt
 
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.pipeline import Pipeline
+
+from moviepy.editor import VideoFileClip
 
 
-class CameraCalibrator(object):
-    def __init__(self, img_size, img_folder, nx, ny, obj_img_cache="obj_img_cache.p",recalc=False):
+class CameraCalibrator(BaseEstimator):
+    def __init__(self, img_size, img_folder, nx, ny, obj_img_cache="obj_img_cache.p", recalc=False):
         self.img_size = img_size
 
-        if os.path.exists(obj_img_cache)==True and recalc==False:
-            cache=pickle.load(open(obj_img_cache,'rb'))
-            self.objpoints=cache['objpoints']
-            self.imgpoints=cache['imgpoints']
+        if os.path.exists(obj_img_cache) == True and recalc == False:
+            cache = pickle.load(open(obj_img_cache, 'rb'))
+            self.objpoints = cache['objpoints']
+            self.imgpoints = cache['imgpoints']
 
         else:
             self.objpoints, self.imgpoints = get_calibration_factors(image_folder=img_folder,
                                                                      nx=nx, ny=ny)
-            with open(obj_img_cache,'wb') as fp:
-                pickle.dump({'objpoints':self.objpoints,'imgpoints':self.imgpoints},fp)
-
+            with open(obj_img_cache, 'wb') as fp:
+                pickle.dump({'objpoints': self.objpoints, 'imgpoints': self.imgpoints}, fp)
 
         self.retval, self.cameraMatrix, \
         self.distCoeffs, self.rvecs, self.tvecs = cv2.calibrateCamera(self.objpoints,
@@ -33,13 +36,13 @@ class CameraCalibrator(object):
 
         return undist_img
 
-    def fit(self,X,y):
+    def fit(self, X, y):
 
         return self
 
 
-class PerspectiveTransformer(object):
-    def __init__(self, src=None, dst=None):
+class PerspectiveTransformer(BaseEstimator):
+    def __init__(self, src=None, dst=None, inv_transform=False):
 
         default_src = [
             (250, 686),  # left, bottom
@@ -64,10 +67,15 @@ class PerspectiveTransformer(object):
         else:
             self.dst = dst
 
-    def transform(self, img):
-        return warper(img, self.src, self.dst)
+        self.inv_transform = inv_transform
 
-    def fit(self,X,y):
+    def transform(self, img):
+        if self.inv_transform:
+            return warper(img, self.dst, self.src)
+        else:
+            return warper(img, self.src, self.dst)
+
+    def fit(self, X, y):
         return self
 
     def get_M(self):
@@ -75,9 +83,25 @@ class PerspectiveTransformer(object):
         return M
 
     def get_invM(self):
-        invM=cv2.getPerspectiveTransform(self.dst,self.src)
+        invM = cv2.getPerspectiveTransform(self.dst, self.src)
         return invM
 
+
+def process_image(image):
+    dummy_img = cv2.imread('./camera_cal/calibration1.jpg')
+    img_size = get_cv2_img_size(dummy_img)
+    IMG_FOLDER = './camera_cal/calibration*.jpg'
+    NX = 9
+    NY = 5
+    camcal = CameraCalibrator(img_size, IMG_FOLDER, NX, NY)
+    pip = Pipeline([('cam', camcal), ('undistort', EdgeExtractor()),
+                    ('pers', PerspectiveTransformer()), ('lane', LaneFinder()),
+                    ('inv_pst', PerspectiveTransformer(inv_transform=True))])
+    transformed_img = pip.fit_transform(image)
+
+    stacked_img = stack_lane_line(image, transformed_img)
+
+    return stacked_img
 
 
 def get_cv2_img_size(img):
@@ -86,6 +110,10 @@ def get_cv2_img_size(img):
     return img[:, :, 0].T.shape[:2]
 
 
+def stack_lane_line(road_img, lane_img):
+    # Combine the result with the original image
+    result = cv2.addWeighted(road_img, 1, lane_img, 0.3, 0)
+    return result
 
 
 def mag_thresh(img, sobel_kernel=3, mag_thresh=(0, 255)):
@@ -107,32 +135,35 @@ def mag_thresh(img, sobel_kernel=3, mag_thresh=(0, 255)):
     return binary_output
 
 
-def abs_sobel_thresh(img, orient='x', thresh_min=0, thresh_max=255):
+def abs_sobel_thresh(img, orient='x', sobel_kernel=1, thresh=(0, 255)):
     # Convert to grayscale
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     # Apply x or y gradient with the OpenCV Sobel() function
     # and take the absolute value
     if orient == 'x':
-        abs_sobel = np.absolute(cv2.Sobel(gray, cv2.CV_64F, 1, 0))
+        abs_sobel = np.absolute(cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=sobel_kernel))
     if orient == 'y':
-        abs_sobel = np.absolute(cv2.Sobel(gray, cv2.CV_64F, 0, 1))
+        abs_sobel = np.absolute(cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=sobel_kernel))
     # Rescale back to 8 bit integer
     scaled_sobel = np.uint8(255 * abs_sobel / np.max(abs_sobel))
     # Create a copy and apply the threshold
     binary_output = np.zeros_like(scaled_sobel)
     # Here I'm using inclusive (>=, <=) thresholds, but exclusive is ok too
-    binary_output[(scaled_sobel >= thresh_min) & (scaled_sobel <= thresh_max)] = 1
+    binary_output[(scaled_sobel >= thresh[0]) & (scaled_sobel <= thresh[1])] = 1
 
     # Return the result
     return binary_output
 
 
-def dir_threshold(img, sobel_kernel=3, thresh=(0, np.pi / 2)):
+def dir_threshold(img, sobel_kernel=3, thresh=(0, np.pi / 2),
+                  to_gray=True,sx_thresh=(30,100),sy_thesh=(30,100)):
     # Grayscale
-    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    if to_gray:
+        img = np.copy(img)
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     # Calculate the x and y gradients
-    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=sobel_kernel)
-    sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=sobel_kernel)
+    sobelx = cv2.Sobel(img, cv2.CV_64F, 1, 0, ksize=sobel_kernel)
+    sobely = cv2.Sobel(img, cv2.CV_64F, 0, 1, ksize=sobel_kernel)
     # Take the absolute value of the gradient direction,
     # apply a threshold, and create a binary image result
     absgraddir = np.arctan2(np.absolute(sobely), np.absolute(sobelx))
@@ -143,9 +174,9 @@ def dir_threshold(img, sobel_kernel=3, thresh=(0, np.pi / 2)):
     return binary_output
 
 
-def hls_select(img, thresh=(0, 255)):
+def hls_select(img, thresh=(0, 255),channel=2):
     hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
-    s_channel = hls[:, :, 2]
+    s_channel = hls[:, :, channel]
     binary_output = np.zeros_like(s_channel)
     binary_output[(s_channel > thresh[0]) & (s_channel <= thresh[1])] = 1
     return binary_output
@@ -192,22 +223,29 @@ def cal_undistort(img, objpoints, imgpoints):
     # undist = np.copy(img)  # Delete this line
     return undist
 
-class EdgeExtractor(object):
 
-    def __init__(self,s_thresh=(100, 255), sx_thresh=(50, 200)):
-        self.s_thresh=s_thresh
-        self.sx_thresh=sx_thresh
+class EdgeExtractor(BaseEstimator):
+    def __init__(self, s_thresh=(100, 255), sx_thresh=(50, 200)):
+        self.s_thresh = s_thresh
+        self.sx_thresh = sx_thresh
 
-    def transform(self,img):
+    def transform(self, X):
+        #_, n_img = edge_pipeline(X, self.s_thresh, self.sx_thresh)
 
-        _,n_img=edge_pipeline(img,self.s_thresh,self.sx_thresh)
+        n_img=edge_pipline_v2(X)
 
         return n_img
 
-    def fit(self,X,y):
+    def fit(self, X, y):
         return self
 
-def edge_pipeline(img, s_thresh=(100, 255), sx_thresh=(50, 200)):
+    def visualize(self, img):
+        color_img, _ = edge_pipeline(img, self.s_thresh, self.sx_thresh)
+
+        return color_img
+
+
+def edge_pipeline(img, s_thresh=(170, 255), sx_thresh=(50, 200)):
     img = np.copy(img)
     # Convert to HSV color space and separate the V channel
     hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HLS).astype(np.float)
@@ -230,10 +268,40 @@ def edge_pipeline(img, s_thresh=(100, 255), sx_thresh=(50, 200)):
     # be beneficial to replace this channel with something else.
     color_binary = np.dstack((np.zeros_like(sxbinary), sxbinary, s_binary))
 
+    dir_binary = dir_threshold(l_channel, thresh=(0.7, 1.3), to_gray=False)
+
     single_channel_binary = np.zeros_like(scaled_sobel)
-    single_channel_binary[(s_binary == 1) | (sxbinary == 1)] = 1
+    single_channel_binary[((s_binary == 1) & (dir_binary == 1)) | (sxbinary == 1)] = 1
 
     return color_binary, single_channel_binary
+
+
+def edge_pipline_v2(difficult_image):
+
+    hls = cv2.cvtColor(difficult_image, cv2.COLOR_RGB2HLS)
+
+    s_binary_1 = hls_select(difficult_image, thresh=(100, 200), channel=1)
+
+    s_binary_2 = hls_select(difficult_image, thresh=(130, 255), channel=2)
+
+    ksize = 3
+    gradx = abs_sobel_thresh(difficult_image, orient='x', sobel_kernel=ksize, thresh=(20, 100))
+
+
+    grady = abs_sobel_thresh(difficult_image, orient='y', sobel_kernel=ksize, thresh=(20, 100))
+
+
+    dir_binary = dir_threshold(difficult_image, thresh=(0.9, 1.2), sobel_kernel=3)
+
+
+    mag_binary = mag_thresh(difficult_image, mag_thresh=(30, 100))
+
+
+    combined = np.zeros_like(dir_binary)
+    combined[((dir_binary == 1) & (mag_binary == 1)) | \
+             ((gradx == 1) & (grady == 1)) | ((s_binary_2 == 1))] = 1
+
+    return combined
 
 
 def warper(img, src, dst):
@@ -244,8 +312,108 @@ def warper(img, src, dst):
 
     return warped
 
+
+class LaneFinder(BaseEstimator, TransformerMixin):
+    def __init__(self):
+
+        self.leftx = None
+        self.lefty = None
+        pass
+
+    def fit(self, X, y=None):
+
+        if self.leftx is None:
+            self.leftx, self.lefty, self.left_fit, self.rightx, \
+            self.righty, self.right_fit, self.out_img, self.nonzerox, \
+            self.nonzeroy, self.left_lane_inds, self.right_lane_inds = find_lane_points(X)
+
+            self.ploty = np.linspace(0, X.shape[0] - 1, X.shape[0])
+            self.left_fitx = self.left_fit[0] * self.ploty ** 2 + self.left_fit[1] * self.ploty + self.left_fit[2]
+            self.right_fitx = self.right_fit[0] * self.ploty ** 2 + self.right_fit[1] * self.ploty + self.right_fit[2]
+
+        else:
+            self._fit_next(X)
+
+        self.out_img[self.nonzeroy[self.left_lane_inds], self.nonzerox[self.left_lane_inds]] = [255, 0, 0]
+        self.out_img[self.nonzeroy[self.right_lane_inds], self.nonzerox[self.right_lane_inds]] = [0, 0, 255]
+
+        return self
+
+    def _fit_next(self, X, y=None):
+        # Assume you now have a new warped binary image
+        # from the next frame of video (also called "binary_warped")
+        # It's now much easier to find line pixels!
+        self.nonzero = X.nonzero()
+        self.nonzeroy = np.array(self.nonzero[0])
+        self.nonzerox = np.array(self.nonzero[1])
+        margin = 100
+        self.left_lane_inds = (
+            (self.nonzerox > (
+            self.left_fit[0] * (self.nonzeroy ** 2) + self.left_fit[1] * self.nonzeroy + self.left_fit[2] - margin)) & (
+                self.nonzerox < (
+                self.left_fit[0] * (self.nonzeroy ** 2) + self.left_fit[1] * self.nonzeroy + self.left_fit[
+                    2] + margin)))
+        self.right_lane_inds = (
+            (self.nonzerox > (
+            self.right_fit[0] * (self.nonzeroy ** 2) + self.right_fit[1] * self.nonzeroy + self.right_fit[
+                2] - margin)) & (
+                self.nonzerox < (
+                self.right_fit[0] * (self.nonzeroy ** 2) + self.right_fit[1] * self.nonzeroy + self.right_fit[
+                    2] + margin)))
+
+        # Again, extract left and right line pixel positions
+        self.leftx = self.nonzerox[self.left_lane_inds]
+        self.lefty = self.nonzeroy[self.left_lane_inds]
+        self.rightx = self.nonzerox[self.right_lane_inds]
+        self.righty = self.nonzeroy[self.right_lane_inds]
+        # Fit a second order polynomial to each
+        self.left_fit = np.polyfit(self.lefty, self.leftx, 2)
+        self.right_fit = np.polyfit(self.righty, self.rightx, 2)
+        # Generate x and y values for plotting
+        self.ploty = np.linspace(0, X.shape[0] - 1, X.shape[0])
+        self.left_fitx = self.left_fit[0] * self.ploty ** 2 + self.left_fit[1] * self.ploty + self.left_fit[2]
+        self.right_fitx = self.right_fit[0] * self.ploty ** 2 + self.right_fit[1] * self.ploty + self.right_fit[2]
+
+    def transform(self, X, y=None):
+
+        # Create an image to draw the lines on
+        warp_zero = np.zeros_like(X).astype(np.uint8)
+        color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
+
+        # Recast the x and y points into usable format for cv2.fillPoly()
+        pts_left = np.array([np.transpose(np.vstack([self.left_fitx, self.ploty]))])
+        pts_right = np.array([np.flipud(np.transpose(np.vstack([self.right_fitx, self.ploty])))])
+        pts = np.hstack((pts_left, pts_right))
+
+        # Draw the lane onto the warped blank image
+        cv2.fillPoly(color_warp, np.int_([pts]), (0, 255, 0))
+
+        return color_warp
+
+    def visualize(self, X, y=None):
+
+        self.fit(X)
+        ploty = np.linspace(0, X.shape[0] - 1, X.shape[0])
+        left_fitx = self.left_fit[0] * ploty ** 2 + self.left_fit[1] * ploty + self.left_fit[2]
+        right_fitx = self.right_fit[0] * ploty ** 2 + self.right_fit[1] * ploty + self.right_fit[2]
+
+        self.out_img[self.nonzeroy[self.left_lane_inds], self.nonzerox[self.left_lane_inds]] = [255, 0, 0]
+        self.out_img[self.nonzeroy[self.right_lane_inds], self.nonzerox[self.right_lane_inds]] = [0, 0, 255]
+        plt.imshow(self.out_img)
+        plt.plot(left_fitx, ploty, color='yellow')
+        plt.plot(right_fitx, ploty, color='yellow')
+        plt.xlim(0, 1280)
+        plt.ylim(720, 0)
+
+
+def render_video(input_video_file, output_video_file):
+    white_output = output_video_file
+    clip1 = VideoFileClip(input_video_file)
+    white_clip = clip1.fl_image(process_image)  # NOTE: this function expects color images!!
+    white_clip.write_videofile(white_output, audio=False)
+
+
 def find_lane_points(binary_warped):
-    
     # Assuming you have created a warped binary image called "binary_warped"
     # Take a histogram of the bottom half of the image
     histogram = np.sum(binary_warped[int(binary_warped.shape[0] / 2):, :], axis=0)
@@ -316,18 +484,12 @@ def find_lane_points(binary_warped):
     left_fit = np.polyfit(lefty, leftx, 2)
     right_fit = np.polyfit(righty, rightx, 2)
 
-    return leftx,lefty,left_fit,rightx,righty,right_fit,out_img,nonzerox,nonzeroy,left_lane_inds,right_lane_inds
+    return leftx, lefty, left_fit, rightx, righty, right_fit, out_img, nonzerox, nonzeroy, left_lane_inds, right_lane_inds
 
 
 if __name__ == "__main__":
-    objpoints, imgpoints = get_calibration_factors()
-    img = cv2.imread('./camera_cal/calibration1.jpg')
-    img_size = img.shape[1], img.shape[0]
-    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, img_size, None, None)
+    test_image = "./test_images/straight_lines2.jpg"
 
-    img = cal_undistort(img, objpoints, imgpoints)
+    n_image = process_image(cv2.imread(test_image))
 
-    cv2.imwrite("test_out.png", img)
-
-    # plt.imshow(img)
-    # plt.show()
+    cv2.imwrite("test_out.png", n_image)
