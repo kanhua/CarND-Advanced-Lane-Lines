@@ -2,6 +2,8 @@
 ### Example user template template
 ### Example user template
 
+guest_scripts/
+image_dump/
 # IntelliJ project files
 .idea
 *.iml
