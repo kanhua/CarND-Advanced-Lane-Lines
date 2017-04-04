@@ -43,6 +43,29 @@ class CameraCalibrator(BaseEstimator):
         return self
 
 
+class CLAHE(BaseEstimator,TransformerMixin):
+
+    def __init__(self):
+        pass
+
+    def transform(self, X, y=None, **fit_params):
+
+        hsv_X = cv2.cvtColor(X, cv2.COLOR_RGB2HSV)
+
+        clahe = cv2.createCLAHE(clipLimit=40, tileGridSize=(4, 4))
+
+        hsv_X[:,:,2]=clahe.apply(hsv_X[:,:,2])
+
+        nX=cv2.cvtColor(hsv_X,cv2.COLOR_HSV2RGB)
+
+        return nX
+
+    def fit(self, X, y=None, **fit_params):
+        return self
+
+
+
+
 class PerspectiveTransformer(BaseEstimator):
     def __init__(self, src=None, dst=None, inv_transform=False):
 
@@ -126,24 +149,6 @@ class ColorFilter(BaseEstimator,TransformerMixin):
             return yellow_white_binary
         res = cv2.bitwise_and(X, X, mask=yellow_white_binary)
         return res
-
-
-
-def process_image(image):
-    dummy_img = cv2.imread('./camera_cal/calibration1.jpg')
-    img_size = get_cv2_img_size(dummy_img)
-    IMG_FOLDER = './camera_cal/calibration*.jpg'
-    NX = 9
-    NY = 5
-    camcal = CameraCalibrator(img_size, IMG_FOLDER, NX, NY)
-    pip = Pipeline([('cam', camcal), ('undistort', EdgeExtractor()),
-                    ('pers', PerspectiveTransformer()), ('lane', LaneFinder()),
-                    ('inv_pst', PerspectiveTransformer(inv_transform=True))])
-    transformed_img = pip.fit_transform(image)
-
-    stacked_img = stack_lane_line(image, transformed_img)
-
-    return stacked_img
 
 
 def get_cv2_img_size(img):
@@ -292,7 +297,7 @@ class EdgeExtractor(BaseEstimator):
     def transform(self, X):
         #_, n_img = edge_pipeline(X, self.s_thresh, self.sx_thresh)
 
-        n_img=edge_pipeline_v3(X)
+        n_img=edge_pipeline_v4(X)
 
         return n_img
 
@@ -383,6 +388,30 @@ def edge_pipeline_v3(difficult_image):
 
     return combined
 
+def edge_pipeline_v4(difficult_image):
+
+    cf=ColorFilter()
+    wy_binary=cf.transform(difficult_image)
+
+    s_binary_2 = hls_select(difficult_image, thresh=(130, 255), channel=2)
+    white_binary = cf._filter_white(difficult_image)
+    yellow_binary=cf._filter_yellow(difficult_image)
+
+    ksize=9
+    gradx = abs_sobel_thresh(difficult_image, orient='x', sobel_kernel=ksize, thresh=(20, 100))
+
+    dir_binary = dir_threshold(difficult_image, thresh=(0.7, 1.3), sobel_kernel=3)
+
+    combined = np.zeros_like(s_binary_2)
+    combined[((s_binary_2 == 1) & (white_binary == 255)) | (yellow_binary == 255) | (
+    (gradx == 1) & (dir_binary == 1) & (white_binary == 255))] = 1
+
+    return combined
+
+
+
+
+
 def warper(img, src, dst):
     # Compute and apply perpective transform
     img_size = (img.shape[1], img.shape[0])
@@ -433,13 +462,12 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         self._reset_out_img(X)
 
         if self.left_fit is None:
-            self.leftx, self.lefty, self.left_fit, self.rightx, \
-            self.righty, self.right_fit, self.nonzerox, \
+            self.leftx, self.lefty, self.rightx, \
+            self.righty, self.nonzerox, \
             self.nonzeroy, self.left_lane_inds, self.right_lane_inds = self.fit_straight(X)
 
-            self.ploty = np.linspace(0, X.shape[0] - 1, X.shape[0])
-            self.left_fitx = self.left_fit[0] * self.ploty ** 2 + self.left_fit[1] * self.ploty + self.left_fit[2]
-            self.right_fitx = self.right_fit[0] * self.ploty ** 2 + self.right_fit[1] * self.ploty + self.right_fit[2]
+            self._curve_fit(X)
+
         else:
             self._fit_next(X)
 
@@ -529,11 +557,19 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         rightx = nonzerox[right_lane_inds]
         righty = nonzeroy[right_lane_inds]
 
-        # Fit a second order polynomial to each
-        left_fit = np.polyfit(lefty, leftx, 2)
-        right_fit = np.polyfit(righty, rightx, 2)
+        return leftx, lefty, rightx, righty, nonzerox, nonzeroy, left_lane_inds, right_lane_inds
 
-        return leftx, lefty, left_fit, rightx, righty, right_fit, nonzerox, nonzeroy, left_lane_inds, right_lane_inds
+    def _curve_fit(self,X):
+
+        # Fit a second order polynomial to each
+        self.left_fit = np.polyfit(self.lefty, self.leftx, 2)
+        self.right_fit = np.polyfit(self.righty, self.rightx, 2)
+
+        # Generate x and y values for plotting
+        self.ploty = np.linspace(0, X.shape[0] - 1, X.shape[0])
+        self.left_fitx = self.left_fit[0] * self.ploty ** 2 + self.left_fit[1] * self.ploty + self.left_fit[2]
+        self.right_fitx = self.right_fit[0] * self.ploty ** 2 + self.right_fit[1] * self.ploty + self.right_fit[2]
+
 
 
     def _fit_next(self, X, y=None):
@@ -563,13 +599,10 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         self.lefty = self.nonzeroy[self.left_lane_inds]
         self.rightx = self.nonzerox[self.right_lane_inds]
         self.righty = self.nonzeroy[self.right_lane_inds]
-        # Fit a second order polynomial to each
-        self.left_fit = np.polyfit(self.lefty, self.leftx, 2)
-        self.right_fit = np.polyfit(self.righty, self.rightx, 2)
-        # Generate x and y values for plotting
-        self.ploty = np.linspace(0, X.shape[0] - 1, X.shape[0])
-        self.left_fitx = self.left_fit[0] * self.ploty ** 2 + self.left_fit[1] * self.ploty + self.left_fit[2]
-        self.right_fitx = self.right_fit[0] * self.ploty ** 2 + self.right_fit[1] * self.ploty + self.right_fit[2]
+
+        self._curve_fit()
+
+
 
     def transform(self, X, y=None):
 
@@ -604,12 +637,6 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         plt.savefig(savefile)
         plt.close()
 
-
-def render_video(input_video_file, output_video_file):
-    white_output = output_video_file
-    clip1 = VideoFileClip(input_video_file)
-    white_clip = clip1.fl_image(process_image)  # NOTE: this function expects color images!!
-    white_clip.write_videofile(white_output, audio=False)
 
 
 def find_lane_points(binary_warped):

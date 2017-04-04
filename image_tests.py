@@ -49,6 +49,14 @@ class MyTestCase(unittest.TestCase):
             savefile="./image_dump/test_lf_%s.jpg" % idx
             lane.visualize(image,savefile=savefile)
 
+    def test_adj_contrast(self):
+
+        clahe=CLAHE()
+
+        nX=clahe.transform(cv2.imread("./test_images/tunnel_1.jpg"))
+
+        cv2.imwrite("./image_dump/adj_tunnel_1.jpg",nX)
+
 
 
 
