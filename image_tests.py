@@ -12,7 +12,7 @@ class MyTestCase(unittest.TestCase):
         img_size = get_cv2_img_size(dummy_img)
         IMG_FOLDER = './camera_cal/calibration*.jpg'
         NX = 9
-        NY = 5
+        NY = 6
         self.camcal = CameraCalibrator(img_size, IMG_FOLDER, NX, NY)
 
     def test_yellow_white_filter(self):
@@ -33,7 +33,10 @@ class MyTestCase(unittest.TestCase):
         for idx,f in enumerate(self.files):
             image=cv2.imread(f)
             transformed_img = pip.fit_transform(image)
-            stacked_img = stack_lane_line(image, transformed_img)
+            left_curverad=lf.left_curverad_m
+            right_curverad=lf.right_curverad_m
+
+            stacked_img = stack_lane_line(image, transformed_img,left_curverad,right_curverad)
             cv2.imwrite("./image_dump/test_fp_%s.jpg" % idx, stacked_img)
 
 

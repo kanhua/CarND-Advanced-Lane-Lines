@@ -76,10 +76,10 @@ class PerspectiveTransformer(BaseEstimator):
             (1060, 686)]  # right, bottom
 
         default_dst = [
-            [300, 720],
-            [300, 0],
-            [800, 0],
-            [800, 720]
+            [350, 720],
+            [350, 0],
+            [950, 0],
+            [950, 720]
         ]
 
         if src is None:
@@ -157,9 +157,17 @@ def get_cv2_img_size(img):
     return img[:, :, 0].T.shape[:2]
 
 
-def stack_lane_line(road_img, lane_img):
+def stack_lane_line(road_img, lane_img,left_curverad=None,right_curverad=None):
     # Combine the result with the original image
-    result = cv2.addWeighted(road_img, 1, lane_img, 0.3, 0)
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    if left_curverad is not None:
+        n_road_img = cv2.putText(road_img, "%s, %s" % (left_curverad, right_curverad),
+                              (20, 40), font, 1, (255, 255, 255), 2,
+                              cv2.LINE_AA)
+    else:
+        n_road_img=np.copy(road_img)
+    result = cv2.addWeighted(n_road_img, 1, lane_img, 0.3, 0)
     return result
 
 
@@ -409,9 +417,6 @@ def edge_pipeline_v4(difficult_image):
     return combined
 
 
-
-
-
 def warper(img, src, dst):
     # Compute and apply perpective transform
     img_size = (img.shape[1], img.shape[0])
@@ -441,7 +446,7 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         img_size = get_cv2_img_size(dummy_img)
         IMG_FOLDER = './camera_cal/calibration*.jpg'
         NX = 9
-        NY = 5
+        NY = 6
         camcal = CameraCalibrator(img_size, IMG_FOLDER, NX, NY)
 
         all_pipes = [('cam', camcal), ('undistort', EdgeExtractor()),
@@ -471,6 +476,9 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         else:
             self._fit_next(X)
 
+        self.left_curverad_m,self.right_curverad_m=self._curve_rad_m(X,
+                                                                     np.max(self.ploty),self.leftx,
+                                                                     self.lefty,self.rightx,self.righty)
 
         self.out_img[self.nonzeroy[self.left_lane_inds], self.nonzerox[self.left_lane_inds]] = [255, 0, 0]
         self.out_img[self.nonzeroy[self.right_lane_inds], self.nonzerox[self.right_lane_inds]] = [0, 0, 255]
@@ -570,6 +578,38 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         self.left_fitx = self.left_fit[0] * self.ploty ** 2 + self.left_fit[1] * self.ploty + self.left_fit[2]
         self.right_fitx = self.right_fit[0] * self.ploty ** 2 + self.right_fit[1] * self.ploty + self.right_fit[2]
 
+        self.left_curverad=self._curve_rad(np.max(self.ploty),self.left_fit)
+        self.right_curverad=self._curve_rad(np.max(self.ploty),self.right_fit)
+
+
+    def _curve_rad(self,y_eval,poly_fit_param):
+        # Define y-value where we want radius of curvature
+        # I'll choose the maximum y-value, corresponding to the bottom of the image
+        curverad = ((1 + (2 * poly_fit_param[0] * y_eval + \
+                          poly_fit_param[1]) ** 2) ** 1.5) / np.absolute(2 * poly_fit_param[0])
+
+        return curverad
+
+
+    def _curve_rad_m(self,X,y_eval,leftx,lefty,rightx,righty):
+        # Define conversions in x and y from pixels space to meters
+        ym_per_pix = 30 / 720  # meters per pixel in y dimension
+        xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
+
+        ploty = np.linspace(0, X.shape[0] - 1, X.shape[0])
+        # Fit new polynomials to x,y in world space
+        left_fit_cr = np.polyfit(lefty * ym_per_pix, leftx * xm_per_pix, 2)
+        right_fit_cr = np.polyfit(righty * ym_per_pix, rightx * xm_per_pix, 2)
+        # Calculate the new radii of curvature
+        left_curverad = ((1 + (2 * left_fit_cr[0] * y_eval * ym_per_pix + left_fit_cr[1]) ** 2) ** 1.5) / np.absolute(
+            2 * left_fit_cr[0])
+        right_curverad = (
+                         (1 + (2 * right_fit_cr[0] * y_eval * ym_per_pix + right_fit_cr[1]) ** 2) ** 1.5) / np.absolute(
+            2 * right_fit_cr[0])
+        # Now our radius of curvature is in meters
+        #print(left_curverad, 'm', right_curverad, 'm')
+        return left_curverad,right_curverad
+
 
 
     def _fit_next(self, X, y=None):
@@ -600,9 +640,7 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         self.rightx = self.nonzerox[self.right_lane_inds]
         self.righty = self.nonzeroy[self.right_lane_inds]
 
-        self._curve_fit()
-
-
+        self._curve_fit(X)
 
     def transform(self, X, y=None):
 
@@ -629,7 +667,8 @@ class LaneFinder(BaseEstimator, TransformerMixin):
 
         self.out_img[self.nonzeroy[self.left_lane_inds], self.nonzerox[self.left_lane_inds]] = [255, 0, 0]
         self.out_img[self.nonzeroy[self.right_lane_inds], self.nonzerox[self.right_lane_inds]] = [0, 0, 255]
-        plt.imshow(self.raw_image)
+        plt.imshow(self.raw_image,cmap='gray')
+        plt.imshow(self.out_img)
         plt.plot(left_fitx, ploty, color='yellow')
         plt.plot(right_fitx, ploty, color='yellow')
         plt.xlim(0, 1280)

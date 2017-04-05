@@ -1,28 +1,24 @@
 import numpy as np
 import cv2
 import glob
-import os
-import pickle
-import matplotlib.pyplot as plt
-
-from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline
 
 from moviepy.editor import VideoFileClip
 
-from image_process import *
+from image_process import LaneFinder,EdgeExtractor,\
+    PerspectiveTransformer,CLAHE,stack_lane_line,get_cv2_img_size,CameraCalibrator
 
 
-input_video_file="challenge_video.mp4"
+input_video_file="project_video.mp4"
 
-output_video_file="output.mp4"
+output_video_file="project_video_output.mp4"
 
 files = glob.glob("./test_images/test*.jpg")
 dummy_img = cv2.imread('./camera_cal/calibration1.jpg')
 img_size = get_cv2_img_size(dummy_img)
 IMG_FOLDER = './camera_cal/calibration*.jpg'
 NX = 9
-NY = 5
+NY = 6
 camcal = CameraCalibrator(img_size, IMG_FOLDER, NX, NY)
 
 
