@@ -425,13 +425,13 @@ def warper(img, src, dst):
 class LaneFinder(BaseEstimator, TransformerMixin):
     def __init__(self):
 
-        self.left_fit=None
-        self.right_fit=None
-
         self.leftx_base=None
         self.rightx_base=None
 
         self.raw_image=None
+
+        self.lane_coords={}
+        self.fitted_param={}
 
 
     def _default_setup(self):
@@ -462,22 +462,39 @@ class LaneFinder(BaseEstimator, TransformerMixin):
 
         self._reset_out_img(X)
 
-        if self.left_fit is None:
-            self.leftx, self.lefty, self.rightx, \
-            self.righty, self.nonzerox, \
-            self.nonzeroy, self.left_lane_inds, self.right_lane_inds = self.fit_straight(X)
+        if not self.fitted_param:
+            leftx, lefty, rightx, righty = self.fit_straight(X)
 
-            self._curve_fit(X)
+            left_fit, right_fit, left_fitx, right_fitx, ploty=self._curve_fit(X,leftx,lefty,rightx,righty)
+
 
         else:
-            self._fit_next(X)
+            leftx, lefty, rightx, righty = self._fit_next(X,
+                                                          self.fitted_param['left_fit'],
+                                                          self.fitted_param['right_fit'])
+
+            left_fit, right_fit, left_fitx, right_fitx, ploty=self._curve_fit(X,leftx,lefty,rightx,righty)
+
+
+        self.left_curverad=self._curve_rad(np.max(ploty),left_fit)
+        self.right_curverad=self._curve_rad(np.max(ploty),right_fit)
+
 
         self.left_curverad_m,self.right_curverad_m=self._curve_rad_m(X,
-                                                                     np.max(self.ploty),self.leftx,
-                                                                     self.lefty,self.rightx,self.righty)
+                                                                     np.max(ploty),leftx,
+                                                                     lefty,rightx,righty)
 
-        self.out_img[self.nonzeroy[self.left_lane_inds], self.nonzerox[self.left_lane_inds]] = [255, 0, 0]
-        self.out_img[self.nonzeroy[self.right_lane_inds], self.nonzerox[self.right_lane_inds]] = [0, 0, 255]
+
+        self.lane_coords['leftx']=leftx
+        self.lane_coords['lefty']=lefty
+        self.lane_coords['rightx']=rightx
+        self.lane_coords['righty']=righty
+
+        self.fitted_param['left_fit']=left_fit
+        self.fitted_param['right_fit']=right_fit
+        self.fitted_param['left_fitx']=left_fitx
+        self.fitted_param['right_fitx']=right_fitx
+        self.fitted_param['ploty']=ploty
 
         return self
 
@@ -561,21 +578,22 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         rightx = nonzerox[right_lane_inds]
         righty = nonzeroy[right_lane_inds]
 
-        return leftx, lefty, rightx, righty, nonzerox, nonzeroy, left_lane_inds, right_lane_inds
+        return leftx, lefty, rightx, righty
 
-    def _curve_fit(self,X):
+    def _curve_fit(self,X,leftx,lefty,rightx,righty):
 
         # Fit a second order polynomial to each
-        self.left_fit = np.polyfit(self.lefty, self.leftx, 2)
-        self.right_fit = np.polyfit(self.righty, self.rightx, 2)
+        left_fit = np.polyfit(lefty, leftx, 2)
+        right_fit = np.polyfit(righty, rightx, 2)
 
         # Generate x and y values for plotting
-        self.ploty = np.linspace(0, X.shape[0] - 1, X.shape[0])
-        self.left_fitx = self.left_fit[0] * self.ploty ** 2 + self.left_fit[1] * self.ploty + self.left_fit[2]
-        self.right_fitx = self.right_fit[0] * self.ploty ** 2 + self.right_fit[1] * self.ploty + self.right_fit[2]
+        ploty = np.linspace(0, X.shape[0] - 1, X.shape[0])
+        left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
+        right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
 
-        self.left_curverad=self._curve_rad(np.max(self.ploty),self.left_fit)
-        self.right_curverad=self._curve_rad(np.max(self.ploty),self.right_fit)
+        #self.left_curverad=self._curve_rad(np.max(self.ploty),self.left_fit)
+        #self.right_curverad=self._curve_rad(np.max(self.ploty),self.right_fit)
+        return left_fit,right_fit,left_fitx,right_fitx,ploty
 
 
     def _curve_rad(self,y_eval,poly_fit_param):
@@ -608,45 +626,50 @@ class LaneFinder(BaseEstimator, TransformerMixin):
 
 
 
-    def _fit_next(self, X, y=None):
+    def _fit_next(self, X,left_fit,right_fit):
         # Assume you now have a new warped binary image
         # from the next frame of video (also called "binary_warped")
         # It's now much easier to find line pixels!
-        self.nonzero = X.nonzero()
-        self.nonzeroy = np.array(self.nonzero[0])
-        self.nonzerox = np.array(self.nonzero[1])
+        nonzero = X.nonzero()
+        nonzeroy = np.array(nonzero[0])
+        nonzerox = np.array(nonzero[1])
         margin = 100
-        self.left_lane_inds = (
-            (self.nonzerox > (
-            self.left_fit[0] * (self.nonzeroy ** 2) + self.left_fit[1] * self.nonzeroy + self.left_fit[2] - margin)) & (
-                self.nonzerox < (
-                self.left_fit[0] * (self.nonzeroy ** 2) + self.left_fit[1] * self.nonzeroy + self.left_fit[
+        left_lane_inds = (
+            (nonzerox > (
+            left_fit[0] * (nonzeroy ** 2) + left_fit[1] * nonzeroy + left_fit[2] - margin)) & (
+                nonzerox < (
+                left_fit[0] * (nonzeroy ** 2) + left_fit[1] * nonzeroy + left_fit[
                     2] + margin)))
-        self.right_lane_inds = (
-            (self.nonzerox > (
-            self.right_fit[0] * (self.nonzeroy ** 2) + self.right_fit[1] * self.nonzeroy + self.right_fit[
+        right_lane_inds = (
+            (nonzerox > (
+            right_fit[0] * (nonzeroy ** 2) + right_fit[1] * nonzeroy + right_fit[
                 2] - margin)) & (
-                self.nonzerox < (
-                self.right_fit[0] * (self.nonzeroy ** 2) + self.right_fit[1] * self.nonzeroy + self.right_fit[
+                nonzerox < (
+                right_fit[0] * (nonzeroy ** 2) + right_fit[1] * nonzeroy + right_fit[
                     2] + margin)))
 
         # Again, extract left and right line pixel positions
-        self.leftx = self.nonzerox[self.left_lane_inds]
-        self.lefty = self.nonzeroy[self.left_lane_inds]
-        self.rightx = self.nonzerox[self.right_lane_inds]
-        self.righty = self.nonzeroy[self.right_lane_inds]
+        leftx = nonzerox[left_lane_inds]
+        lefty = nonzeroy[left_lane_inds]
+        rightx = nonzerox[right_lane_inds]
+        righty = nonzeroy[right_lane_inds]
 
-        self._curve_fit(X)
+        return leftx,lefty,rightx,righty
 
     def transform(self, X, y=None):
+
+
+        left_fitx=self.fitted_param['left_fitx']
+        right_fitx=self.fitted_param['right_fitx']
+        ploty=self.fitted_param['ploty']
 
         # Create an image to draw the lines on
         warp_zero = np.zeros_like(X).astype(np.uint8)
         color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
 
         # Recast the x and y points into usable format for cv2.fillPoly()
-        pts_left = np.array([np.transpose(np.vstack([self.left_fitx, self.ploty]))])
-        pts_right = np.array([np.flipud(np.transpose(np.vstack([self.right_fitx, self.ploty])))])
+        pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
+        pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
         pts = np.hstack((pts_left, pts_right))
 
         # Draw the lane onto the warped blank image
@@ -657,14 +680,14 @@ class LaneFinder(BaseEstimator, TransformerMixin):
     def visualize(self, X, y=None,savefile="cache.png"):
 
         self.fit(X)
-        ploty = np.linspace(0, X.shape[0] - 1, X.shape[0])
-        left_fitx = self.left_fit[0] * ploty ** 2 + self.left_fit[1] * ploty + self.left_fit[2]
-        right_fitx = self.right_fit[0] * ploty ** 2 + self.right_fit[1] * ploty + self.right_fit[2]
+        left_fitx=self.fitted_param['left_fitx']
+        right_fitx=self.fitted_param['right_fitx']
+        ploty=self.fitted_param['ploty']
 
-        self.out_img[self.nonzeroy[self.left_lane_inds], self.nonzerox[self.left_lane_inds]] = [255, 0, 0]
-        self.out_img[self.nonzeroy[self.right_lane_inds], self.nonzerox[self.right_lane_inds]] = [0, 0, 255]
+        #self.out_img[self.nonzeroy[self.left_lane_inds], self.nonzerox[self.left_lane_inds]] = [255, 0, 0]
+        #self.out_img[self.nonzeroy[self.right_lane_inds], self.nonzerox[self.right_lane_inds]] = [0, 0, 255]
         plt.imshow(self.raw_image,cmap='gray')
-        plt.imshow(self.out_img)
+        #plt.imshow(self.out_img)
         plt.plot(left_fitx, ploty, color='yellow')
         plt.plot(right_fitx, ploty, color='yellow')
         plt.xlim(0, 1280)
@@ -749,8 +772,4 @@ def find_lane_points(binary_warped):
 
 
 if __name__ == "__main__":
-    test_image = "./test_images/straight_lines2.jpg"
-
-    n_image = process_image(cv2.imread(test_image))
-
-    cv2.imwrite("test_out.png", n_image)
+    pass
