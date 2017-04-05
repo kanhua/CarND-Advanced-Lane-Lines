@@ -11,10 +11,12 @@ from sklearn.pipeline import Pipeline
 from moviepy.editor import VideoFileClip
 
 
-
-
-class CameraCalibrator(BaseEstimator):
-    def __init__(self, img_size, img_folder, nx, ny, obj_img_cache="obj_img_cache.p", recalc=False):
+class CameraCalibrator(BaseEstimator,TransformerMixin):
+    """
+    This class runs the camera images calibration and transform new images using the calibration parameters
+    
+    """
+    def __init__(self, img_size=None, img_folder=None, nx=None, ny=None, obj_img_cache="obj_img_cache.p", recalc=False):
         self.img_size = img_size
 
         if os.path.exists(obj_img_cache) == True and recalc == False:
@@ -32,13 +34,13 @@ class CameraCalibrator(BaseEstimator):
         self.distCoeffs, self.rvecs, self.tvecs = cv2.calibrateCamera(self.objpoints,
                                                                       self.imgpoints, self.img_size, None, None)
 
-    def transform(self, img):
+    def transform(self, img,y=None):
         assert get_cv2_img_size(img) == self.img_size
         undist_img = cv2.undistort(img, self.cameraMatrix, self.distCoeffs, None, self.cameraMatrix)
 
         return undist_img
 
-    def fit(self, X, y):
+    def fit(self, X, y=None):
 
         return self
 
@@ -64,43 +66,36 @@ class CLAHE(BaseEstimator,TransformerMixin):
         return self
 
 
+class PerspectiveTransformer(BaseEstimator,TransformerMixin):
+    """
+    This class performs perspective transformation in both (foward and reverse) direction
+    
+    """
+    def __init__(self, src=[(250, 686),  # left, bottom
+                            (583, 458),  # left, top
+                            (700, 458),  # right, top
+                            (1060, 686)],
+                 dst=[
+                     [350, 720],
+                     [350, 0],
+                     [950, 0],
+                     [950, 720]
+                 ], inv_transform=False):
 
 
-class PerspectiveTransformer(BaseEstimator):
-    def __init__(self, src=None, dst=None, inv_transform=False):
+        self.src = np.array(src).astype(np.float32)
 
-        default_src = [
-            (250, 686),  # left, bottom
-            (583, 458),  # left, top
-            (700, 458),  # right, top
-            (1060, 686)]  # right, bottom
-
-        default_dst = [
-            [350, 720],
-            [350, 0],
-            [950, 0],
-            [950, 720]
-        ]
-
-        if src is None:
-            self.src = np.array(default_src).astype(np.float32)
-        else:
-            self.src = src
-
-        if dst is None:
-            self.dst = np.array(default_dst).astype(np.float32)
-        else:
-            self.dst = dst
+        self.dst = np.array(dst).astype(np.float32)
 
         self.inv_transform = inv_transform
 
-    def transform(self, img):
+    def transform(self, img,y=None):
         if self.inv_transform:
             return warper(img, self.dst, self.src)
         else:
             return warper(img, self.src, self.dst)
 
-    def fit(self, X, y):
+    def fit(self, X, y=None):
         return self
 
     def get_M(self):
@@ -120,8 +115,9 @@ class ColorFilter(BaseEstimator,TransformerMixin):
     def _color_mask(self,X,low,high):
         nX=np.copy(X)
         mask = cv2.inRange(nX, low, high)
-        #mask=(mask/255).astype('uint8')
-        return mask
+        nmask=np.zeros_like(mask)
+        nmask[mask==255]=1
+        return nmask
 
     def _filter_white(self,X):
         hsv = cv2.cvtColor(X, cv2.COLOR_RGB2HSV)
@@ -144,7 +140,7 @@ class ColorFilter(BaseEstimator,TransformerMixin):
         wh=self._filter_white(X)
         yl=self._filter_yellow(X)
         yellow_white_binary = np.zeros_like(wh)
-        yellow_white_binary[(wh == 255) | (yl == 255)] = 1
+        yellow_white_binary[(wh == 1) | (yl == 1)] = 1
         if mask:
             return yellow_white_binary
         res = cv2.bitwise_and(X, X, mask=yellow_white_binary)
@@ -411,8 +407,8 @@ def edge_pipeline_v4(difficult_image):
     dir_binary = dir_threshold(difficult_image, thresh=(0.7, 1.3), sobel_kernel=3)
 
     combined = np.zeros_like(s_binary_2)
-    combined[((s_binary_2 == 1) & (white_binary == 255)) | (yellow_binary == 255) | (
-    (gradx == 1) & (dir_binary == 1) & (white_binary == 255))] = 1
+    combined[((s_binary_2 == 1) & (white_binary == 1)) | (yellow_binary == 1) | (
+    (gradx == 1) & (dir_binary == 1) & (white_binary == 1))] = 1
 
     return combined
 
@@ -594,7 +590,7 @@ class LaneFinder(BaseEstimator, TransformerMixin):
     def _curve_rad_m(self,X,y_eval,leftx,lefty,rightx,righty):
         # Define conversions in x and y from pixels space to meters
         ym_per_pix = 30 / 720  # meters per pixel in y dimension
-        xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
+        xm_per_pix = 3.7 / 600  # meters per pixel in x dimension
 
         ploty = np.linspace(0, X.shape[0] - 1, X.shape[0])
         # Fit new polynomials to x,y in world space

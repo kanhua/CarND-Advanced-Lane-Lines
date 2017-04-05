@@ -21,7 +21,7 @@ class MyTestCase(unittest.TestCase):
         for idx,f in enumerate(self.files):
             image=cv2.imread(f)
             n_image=cf.transform(image)
-            cv2.imwrite("./image_dump/test_yw_%s.jpg"%idx,n_image)
+            cv2.imwrite("./image_dump/test_yw_%s.jpg"%idx,n_image*255)
 
     def run_through_test_images(self):
 
