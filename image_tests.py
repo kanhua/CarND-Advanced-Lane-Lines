@@ -15,6 +15,44 @@ class MyTestCase(unittest.TestCase):
         NY = 6
         self.camcal = CameraCalibrator(img_size, IMG_FOLDER, NX, NY)
 
+    def undistort_sample(self):
+
+        test_image=cv2.imread("./camera_cal/calibration1.jpg")
+        undistort_image=self.camcal.transform(test_image)
+
+        fig,ax=plt.subplots(1,2)
+        ax[0].imshow(test_image)
+        ax[0].set_title("Raw image")
+        ax[1].imshow(undistort_image)
+        ax[1].set_title("Corrected image")
+        fig.savefig("./output_images/camcal.png")
+
+    def binary_sample(self):
+
+        test_image=cv2.imread("./test_images/test1.jpg")
+        lane_binary=EdgeExtractor().transform(test_image)
+
+        fig,ax=plt.subplots(1,2)
+        ax[0].imshow(test_image)
+        ax[0].set_title("Raw image")
+        ax[1].imshow(lane_binary)
+        ax[1].set_title("Binary mask")
+        fig.savefig("./output_images/binary_mask_demo.png")
+
+    def perspective_transform_sample(self):
+
+        test_image=cv2.imread("./test_images/straight_lines1.jpg")
+        n_image=self.camcal.transform(test_image)
+        n_image=PerspectiveTransformer().transform(n_image)
+
+        fig,ax=plt.subplots(1,2)
+        ax[0].imshow(np.flip(test_image,axis=2))
+        ax[0].set_title("Raw image")
+        ax[1].imshow(np.flip(n_image,axis=2))
+        ax[1].set_title("Perspective transform")
+        fig.savefig("./output_images/pers_trans_demo.png")
+
+
     def test_yellow_white_filter(self):
 
         cf=ColorFilter()

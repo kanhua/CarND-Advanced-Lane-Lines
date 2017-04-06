@@ -281,14 +281,6 @@ def get_calibration_factors(image_folder='./camera_cal/calibration*.jpg', nx=9, 
     return objpoints, imgpoints
 
 
-def cal_undistort(img, objpoints, imgpoints):
-    # Use cv2.calibrateCamera() and cv2.undistort()
-    retval, cameraMatrix, distCoeffs, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, img[:, :, 0].T.shape[:2],
-                                                                         None, None)
-    undist = cv2.undistort(img, cameraMatrix, distCoeffs, None, cameraMatrix)
-    # undist = np.copy(img)  # Delete this line
-    return undist
-
 
 class EdgeExtractor(BaseEstimator):
     def __init__(self, s_thresh=(100, 255), sx_thresh=(50, 200)):
@@ -559,17 +551,21 @@ class LaneFinder(BaseEstimator, TransformerMixin):
             win_xleft_high = leftx_current + margin
             win_xright_low = rightx_current - margin
             win_xright_high = rightx_current + margin
+
             # Draw the windows on the visualization image
             cv2.rectangle(self.out_img, (win_xleft_low, win_y_low), (win_xleft_high, win_y_high), (0, 255, 0), 2)
             cv2.rectangle(self.out_img, (win_xright_low, win_y_low), (win_xright_high, win_y_high), (0, 255, 0), 2)
+
             # Identify the nonzero pixels in x and y within the window
             good_left_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) \
                               & (nonzerox >= win_xleft_low) & (nonzerox < win_xleft_high)).nonzero()[0]
             good_right_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) \
                                & (nonzerox >= win_xright_low) & (nonzerox < win_xright_high)).nonzero()[0]
+
             # Append these indices to the lists
             left_lane_inds.append(good_left_inds)
             right_lane_inds.append(good_right_inds)
+
             # If you found > minpix pixels, recenter next window on their mean position
             if len(good_left_inds) > minpix:
                 leftx_current = np.int(np.mean(nonzerox[good_left_inds]))
