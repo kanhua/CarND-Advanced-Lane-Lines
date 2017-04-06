@@ -4,6 +4,7 @@ import glob
 import os
 import pickle
 import matplotlib.pyplot as plt
+from copy import copy
 
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline
@@ -11,11 +12,12 @@ from sklearn.pipeline import Pipeline
 from moviepy.editor import VideoFileClip
 
 
-class CameraCalibrator(BaseEstimator,TransformerMixin):
+class CameraCalibrator(BaseEstimator, TransformerMixin):
     """
     This class runs the camera images calibration and transform new images using the calibration parameters
     
     """
+
     def __init__(self, img_size=None, img_folder=None, nx=None, ny=None, obj_img_cache="obj_img_cache.p", recalc=False):
         self.img_size = img_size
 
@@ -34,7 +36,7 @@ class CameraCalibrator(BaseEstimator,TransformerMixin):
         self.distCoeffs, self.rvecs, self.tvecs = cv2.calibrateCamera(self.objpoints,
                                                                       self.imgpoints, self.img_size, None, None)
 
-    def transform(self, img,y=None):
+    def transform(self, img, y=None):
         assert get_cv2_img_size(img) == self.img_size
         undist_img = cv2.undistort(img, self.cameraMatrix, self.distCoeffs, None, self.cameraMatrix)
 
@@ -45,20 +47,18 @@ class CameraCalibrator(BaseEstimator,TransformerMixin):
         return self
 
 
-class CLAHE(BaseEstimator,TransformerMixin):
-
+class CLAHE(BaseEstimator, TransformerMixin):
     def __init__(self):
         pass
 
     def transform(self, X, y=None, **fit_params):
-
         hsv_X = cv2.cvtColor(X, cv2.COLOR_RGB2HSV)
 
         clahe = cv2.createCLAHE(clipLimit=40, tileGridSize=(4, 4))
 
-        hsv_X[:,:,2]=clahe.apply(hsv_X[:,:,2])
+        hsv_X[:, :, 2] = clahe.apply(hsv_X[:, :, 2])
 
-        nX=cv2.cvtColor(hsv_X,cv2.COLOR_HSV2RGB)
+        nX = cv2.cvtColor(hsv_X, cv2.COLOR_HSV2RGB)
 
         return nX
 
@@ -66,22 +66,22 @@ class CLAHE(BaseEstimator,TransformerMixin):
         return self
 
 
-class PerspectiveTransformer(BaseEstimator,TransformerMixin):
+class PerspectiveTransformer(BaseEstimator, TransformerMixin):
     """
     This class performs perspective transformation in both (foward and reverse) direction
     
     """
-    def __init__(self, src=[(250, 686),  # left, bottom
-                            (583, 458),  # left, top
-                            (700, 458),  # right, top
-                            (1060, 686)],
-                 dst=[
-                     [350, 720],
-                     [350, 0],
-                     [950, 0],
-                     [950, 720]
-                 ], inv_transform=False):
 
+    def __init__(self, dst=[
+        [350, 720],
+        [350, 0],
+        [950, 0],
+        [950, 720]
+    ],
+                 src=[(250, 686),  # left, bottom
+                      (583, 458),  # left, top
+                      (700, 458),  # right, top
+                      (1060, 686)], inv_transform=False):
 
         self.src = np.array(src).astype(np.float32)
 
@@ -89,7 +89,7 @@ class PerspectiveTransformer(BaseEstimator,TransformerMixin):
 
         self.inv_transform = inv_transform
 
-    def transform(self, img,y=None):
+    def transform(self, img, y=None):
         if self.inv_transform:
             return warper(img, self.dst, self.src)
         else:
@@ -107,38 +107,37 @@ class PerspectiveTransformer(BaseEstimator,TransformerMixin):
         return invM
 
 
-class ColorFilter(BaseEstimator,TransformerMixin):
-
+class ColorFilter(BaseEstimator, TransformerMixin):
     def __init__(self):
         pass
 
-    def _color_mask(self,X,low,high):
-        nX=np.copy(X)
+    def _color_mask(self, X, low, high):
+        nX = np.copy(X)
         mask = cv2.inRange(nX, low, high)
-        nmask=np.zeros_like(mask)
-        nmask[mask==255]=1
+        nmask = np.zeros_like(mask)
+        nmask[mask == 255] = 1
         return nmask
 
-    def _filter_white(self,X):
+    def _filter_white(self, X):
         hsv = cv2.cvtColor(X, cv2.COLOR_RGB2HSV)
         white_hsv_low = np.array([10, 0, 160])
         white_hsv_high = np.array([255, 80, 255])
         white_filtered_image = self._color_mask(hsv, white_hsv_low, white_hsv_high)
         return white_filtered_image
 
-    def _filter_yellow(self,X):
+    def _filter_yellow(self, X):
         hsv = cv2.cvtColor(X, cv2.COLOR_RGB2HSV)
         yellow_hsv_low = np.array([70, 80, 100])
         yellow_hsv_high = np.array([105, 255, 255])
         yellow_filtered_image = self._color_mask(hsv, yellow_hsv_low, yellow_hsv_high)
         return yellow_filtered_image
 
-    def fit(self,X,y=None):
+    def fit(self, X, y=None):
         return self
 
-    def transform(self,X,y=None,mask=True):
-        wh=self._filter_white(X)
-        yl=self._filter_yellow(X)
+    def transform(self, X, y=None, mask=True):
+        wh = self._filter_white(X)
+        yl = self._filter_yellow(X)
         yellow_white_binary = np.zeros_like(wh)
         yellow_white_binary[(wh == 1) | (yl == 1)] = 1
         if mask:
@@ -153,27 +152,26 @@ def get_cv2_img_size(img):
     return img[:, :, 0].T.shape[:2]
 
 
-def stack_lane_line(road_img, lane_img,left_curverad=None,right_curverad=None):
+def stack_lane_line(road_img, lane_img, left_curverad=None, right_curverad=None):
     # Combine the result with the original image
 
     font = cv2.FONT_HERSHEY_SIMPLEX
     if left_curverad is not None:
         n_road_img = cv2.putText(road_img, "%s, %s" % (left_curverad, right_curverad),
-                              (20, 40), font, 1, (255, 255, 255), 2,
-                              cv2.LINE_AA)
+                                 (20, 40), font, 1, (255, 255, 255), 2,
+                                 cv2.LINE_AA)
     else:
-        n_road_img=np.copy(road_img)
+        n_road_img = np.copy(road_img)
     result = cv2.addWeighted(n_road_img, 1, lane_img, 0.3, 0)
     return result
 
 
-def mag_thresh(img, sobel_kernel=3, mag_thresh=(0, 255),to_gray=True):
-
-    if to_gray==True:
+def mag_thresh(img, sobel_kernel=3, mag_thresh=(0, 255), to_gray=True):
+    if to_gray == True:
         # Convert to grayscale
         gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     else:
-        gray=img
+        gray = img
     # Take both Sobel x and y gradients
     sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=sobel_kernel)
     sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=sobel_kernel)
@@ -191,14 +189,15 @@ def mag_thresh(img, sobel_kernel=3, mag_thresh=(0, 255),to_gray=True):
 
 
 def abs_sobel_thresh(img, orient='x',
-                     sobel_kernel=1, thresh=(0, 255),to_gray=True):
+                     sobel_kernel=1, thresh=(0, 255), to_gray=True):
     # Convert to grayscale
     if to_gray:
         gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     else:
-        gray=img
+        gray = img
     # Apply x or y gradient with the OpenCV Sobel() function
     # and take the absolute value
+    abs_sobel = None
     if orient == 'x':
         abs_sobel = np.absolute(cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=sobel_kernel))
     if orient == 'y':
@@ -215,7 +214,7 @@ def abs_sobel_thresh(img, orient='x',
 
 
 def dir_threshold(img, sobel_kernel=3, thresh=(0, np.pi / 2),
-                  to_gray=True,sx_thresh=(30,100),sy_thesh=(30,100)):
+                  to_gray=True, sx_thresh=(30, 100), sy_thesh=(30, 100)):
     # Grayscale
     if to_gray:
         img = np.copy(img)
@@ -233,7 +232,7 @@ def dir_threshold(img, sobel_kernel=3, thresh=(0, np.pi / 2),
     return binary_output
 
 
-def hls_select(img, thresh=(0, 255),channel=2):
+def hls_select(img, thresh=(0, 255), channel=2):
     hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
     s_channel = hls[:, :, channel]
     binary_output = np.zeros_like(s_channel)
@@ -241,14 +240,12 @@ def hls_select(img, thresh=(0, 255),channel=2):
     return binary_output
 
 
-def hsv_select(img, thresh=(0, 255),channel=2):
+def hsv_select(img, thresh=(0, 255), channel=2):
     hls = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
     s_channel = hls[:, :, channel]
     binary_output = np.zeros_like(s_channel)
     binary_output[(s_channel > thresh[0]) & (s_channel <= thresh[1])] = 1
     return binary_output
-
-
 
 
 def get_calibration_factors(image_folder='./camera_cal/calibration*.jpg', nx=9, ny=5):
@@ -299,9 +296,9 @@ class EdgeExtractor(BaseEstimator):
         self.sx_thresh = sx_thresh
 
     def transform(self, X):
-        #_, n_img = edge_pipeline(X, self.s_thresh, self.sx_thresh)
+        # _, n_img = edge_pipeline(X, self.s_thresh, self.sx_thresh)
 
-        n_img=edge_pipeline_v4(X)
+        n_img = edge_pipeline_v4(X)
 
         return n_img
 
@@ -346,7 +343,6 @@ def edge_pipeline(img, s_thresh=(170, 255), sx_thresh=(50, 200)):
 
 
 def edge_pipline_v2(difficult_image):
-
     hls = cv2.cvtColor(difficult_image, cv2.COLOR_RGB2HLS)
 
     s_binary_1 = hls_select(difficult_image, thresh=(100, 200), channel=1)
@@ -356,15 +352,11 @@ def edge_pipline_v2(difficult_image):
     ksize = 3
     gradx = abs_sobel_thresh(difficult_image, orient='x', sobel_kernel=ksize, thresh=(20, 100))
 
-
     grady = abs_sobel_thresh(difficult_image, orient='y', sobel_kernel=ksize, thresh=(20, 100))
-
 
     dir_binary = dir_threshold(difficult_image, thresh=(0.9, 1.2), sobel_kernel=3)
 
-
     mag_binary = mag_thresh(difficult_image, mag_thresh=(30, 100))
-
 
     combined = np.zeros_like(dir_binary)
     combined[((dir_binary == 1) & (mag_binary == 1)) | \
@@ -372,16 +364,15 @@ def edge_pipline_v2(difficult_image):
 
     return combined
 
-def edge_pipeline_v3(difficult_image):
 
-    cf=ColorFilter()
-    wy_binary=cf.transform(difficult_image)
+def edge_pipeline_v3(difficult_image):
+    cf = ColorFilter()
+    wy_binary = cf.transform(difficult_image)
 
     ksize = 3
     gradx = abs_sobel_thresh(difficult_image, orient='x', sobel_kernel=ksize, thresh=(20, 100))
 
     grady = abs_sobel_thresh(difficult_image, orient='y', sobel_kernel=ksize, thresh=(20, 100))
-
 
     dir_binary = dir_threshold(difficult_image, thresh=(0.9, 1.2), sobel_kernel=3)
 
@@ -392,23 +383,23 @@ def edge_pipeline_v3(difficult_image):
 
     return combined
 
-def edge_pipeline_v4(difficult_image):
 
-    cf=ColorFilter()
-    wy_binary=cf.transform(difficult_image)
+def edge_pipeline_v4(difficult_image):
+    cf = ColorFilter()
+    wy_binary = cf.transform(difficult_image)
 
     s_binary_2 = hls_select(difficult_image, thresh=(130, 255), channel=2)
     white_binary = cf._filter_white(difficult_image)
-    yellow_binary=cf._filter_yellow(difficult_image)
+    yellow_binary = cf._filter_yellow(difficult_image)
 
-    ksize=9
+    ksize = 9
     gradx = abs_sobel_thresh(difficult_image, orient='x', sobel_kernel=ksize, thresh=(20, 100))
 
     dir_binary = dir_threshold(difficult_image, thresh=(0.7, 1.3), sobel_kernel=3)
 
     combined = np.zeros_like(s_binary_2)
     combined[((s_binary_2 == 1) & (white_binary == 1)) | (yellow_binary == 1) | (
-    (gradx == 1) & (dir_binary == 1) & (white_binary == 1))] = 1
+        (gradx == 1) & (dir_binary == 1) & (white_binary == 1))] = 1
 
     return combined
 
@@ -425,13 +416,16 @@ def warper(img, src, dst):
 class LaneFinder(BaseEstimator, TransformerMixin):
     def __init__(self):
 
-        self.leftx_base=None
-        self.rightx_base=None
+        self.leftx_base = None
+        self.rightx_base = None
 
-        self.raw_image=None
+        self.raw_image = None
 
-        self.lane_coords={}
-        self.fitted_param={}
+        self.lane_coords = {}
+        self.fitted_param = {}
+
+        self.left_curverad=None
+        self.righ_curverad=None
 
 
     def _default_setup(self):
@@ -448,14 +442,13 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         all_pipes = [('cam', camcal), ('undistort', EdgeExtractor()),
                      ('pers', PerspectiveTransformer())]
         pip = Pipeline(all_pipes)
-        lane_cal_image=pip.transform(cv2.imread("./test_images/straight_lines1.jpg"))
+        lane_cal_image = pip.transform(cv2.imread("./test_images/straight_lines1.jpg"))
 
         self._find_base(lane_cal_image)
 
-
     def fit(self, X, y=None):
 
-        self.raw_image=np.copy(X)
+        self.raw_image = np.copy(X)
 
         if self.leftx_base is None:
             self._default_setup()
@@ -463,60 +456,61 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         self._reset_out_img(X)
 
         if not self.fitted_param:
-            leftx, lefty, rightx, righty = self.fit_straight(X)
+            lane_coords = self.fit_straight(X)
 
-            left_fit, right_fit, left_fitx, right_fitx, ploty=self._curve_fit(X,leftx,lefty,rightx,righty)
+            fitted_param = self._curve_fit(X, **lane_coords)
 
 
         else:
-            leftx, lefty, rightx, righty = self._fit_next(X,
-                                                          self.fitted_param['left_fit'],
-                                                          self.fitted_param['right_fit'])
+            lane_coords = self._fit_next(X, self.fitted_param['left_fit'], self.fitted_param['right_fit'])
 
+            fitted_param = self._curve_fit(X, **lane_coords)
 
-            left_fit, right_fit, left_fitx, right_fitx, ploty=self._curve_fit(X,leftx,lefty,rightx,righty)
+            if self._base_shifted(fitted_param['left_fitx'], fitted_param['right_fitx']):
+                lane_coords = self.fit_straight(X)
+                fitted_param = self._curve_fit(X, **lane_coords)
 
-            if self._base_shifted(left_fitx,right_fitx):
-                leftx, lefty, rightx, righty = self.fit_straight(X)
-                left_fit, right_fit, left_fitx, right_fitx, ploty = self._curve_fit(X, leftx, lefty, rightx, righty)
+        left_curverad = self._curve_rad(np.max(fitted_param['ploty']), fitted_param['left_fit'])
+        right_curverad = self._curve_rad(np.max(fitted_param['ploty']), fitted_param['right_fit'])
 
+        # if self._lr_curve_rad_cmp(left_curverad, right_curverad,margin_ratio=0.5):
+        #     if self.left_curverad is not None:
+        #         left_curverad = self.left_curverad
+        #         right_curverad = self.righ_curverad
+        #         fitted_param = self.fitted_param
 
+        left_curverad_m, right_curverad_m = self._curve_rad_m(X, np.max(fitted_param['ploty']), **lane_coords)
 
-        self.left_curverad=self._curve_rad(np.max(ploty),left_fit)
-        self.right_curverad=self._curve_rad(np.max(ploty),right_fit)
+        self.lane_coords = copy(lane_coords)
 
+        self.left_curverad = left_curverad
+        self.righ_curverad = right_curverad
 
-        self.left_curverad_m,self.right_curverad_m=self._curve_rad_m(X,
-                                                                     np.max(ploty),leftx,
-                                                                     lefty,rightx,righty)
+        self.left_curverad_m = left_curverad_m
+        self.right_curverad_m = right_curverad_m
 
-
-        self.lane_coords['leftx']=leftx
-        self.lane_coords['lefty']=lefty
-        self.lane_coords['rightx']=rightx
-        self.lane_coords['righty']=righty
-
-        self.fitted_param['left_fit']=left_fit
-        self.fitted_param['right_fit']=right_fit
-        self.fitted_param['left_fitx']=left_fitx
-        self.fitted_param['right_fitx']=right_fitx
-        self.fitted_param['ploty']=ploty
+        self.fitted_param = copy(fitted_param)
 
         return self
 
-    def _base_shifted(self,leftx,rightx,margin=50):
+    def _base_shifted(self, leftx, rightx, margin=50):
 
-        if np.abs(leftx[-1]-self.leftx_base)>margin or np.abs(rightx[-1]-self.rightx_base)>margin:
+        if np.abs(leftx[-1] - self.leftx_base) > margin or np.abs(rightx[-1] - self.rightx_base) > margin:
             return True
         else:
             return False
 
+    def _lr_curve_rad_cmp(self, prev_curve_rad, curr_curve_rad, margin_ratio=0.1):
+        if np.abs(prev_curve_rad / curr_curve_rad - 1) > margin_ratio:
+            return True
+        else:
+            return False
 
-    def _reset_out_img(self,X):
-        self.out_img=np.dstack((X,X,X))
+    def _reset_out_img(self, X):
+        self.out_img = np.dstack((X, X, X))
         return self.out_img
 
-    def _find_base(self,calibration_X):
+    def _find_base(self, calibration_X):
 
         # Assuming you have created a warped binary image called "X"
         # Take a histogram of the bottom half of the image
@@ -592,9 +586,15 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         rightx = nonzerox[right_lane_inds]
         righty = nonzeroy[right_lane_inds]
 
-        return leftx, lefty, rightx, righty
+        lane_coords = {}
+        lane_coords['leftx'] = leftx
+        lane_coords['lefty'] = lefty
+        lane_coords['rightx'] = rightx
+        lane_coords['righty'] = righty
 
-    def _curve_fit(self,X,leftx,lefty,rightx,righty):
+        return lane_coords
+
+    def _curve_fit(self, X, leftx, lefty, rightx, righty):
 
         # Fit a second order polynomial to each
         left_fit = np.polyfit(lefty, leftx, 2)
@@ -605,12 +605,18 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
         right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
 
-        #self.left_curverad=self._curve_rad(np.max(self.ploty),self.left_fit)
-        #self.right_curverad=self._curve_rad(np.max(self.ploty),self.right_fit)
-        return left_fit,right_fit,left_fitx,right_fitx,ploty
+        # self.left_curverad=self._curve_rad(np.max(self.ploty),self.left_fit)
+        # self.right_curverad=self._curve_rad(np.max(self.ploty),self.right_fit)
+        fitted_param = {}
+        fitted_param['left_fit'] = left_fit
+        fitted_param['right_fit'] = right_fit
+        fitted_param['left_fitx'] = left_fitx
+        fitted_param['right_fitx'] = right_fitx
+        fitted_param['ploty'] = ploty
 
+        return fitted_param
 
-    def _curve_rad(self,y_eval,poly_fit_param):
+    def _curve_rad(self, y_eval, poly_fit_param):
         # Define y-value where we want radius of curvature
         # I'll choose the maximum y-value, corresponding to the bottom of the image
         curverad = ((1 + (2 * poly_fit_param[0] * y_eval + \
@@ -618,8 +624,7 @@ class LaneFinder(BaseEstimator, TransformerMixin):
 
         return curverad
 
-
-    def _curve_rad_m(self,X,y_eval,leftx,lefty,rightx,righty):
+    def _curve_rad_m(self, X, y_eval, leftx, lefty, rightx, righty):
         # Define conversions in x and y from pixels space to meters
         ym_per_pix = 30 / 720  # meters per pixel in y dimension
         xm_per_pix = 3.7 / 600  # meters per pixel in x dimension
@@ -632,15 +637,15 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         left_curverad = ((1 + (2 * left_fit_cr[0] * y_eval * ym_per_pix + left_fit_cr[1]) ** 2) ** 1.5) / np.absolute(
             2 * left_fit_cr[0])
         right_curverad = (
-                         (1 + (2 * right_fit_cr[0] * y_eval * ym_per_pix + right_fit_cr[1]) ** 2) ** 1.5) / np.absolute(
+                             (1 + (
+                                 2 * right_fit_cr[0] * y_eval * ym_per_pix + right_fit_cr[
+                                     1]) ** 2) ** 1.5) / np.absolute(
             2 * right_fit_cr[0])
         # Now our radius of curvature is in meters
-        #print(left_curverad, 'm', right_curverad, 'm')
-        return left_curverad,right_curverad
+        # print(left_curverad, 'm', right_curverad, 'm')
+        return left_curverad, right_curverad
 
-
-
-    def _fit_next(self, X,left_fit,right_fit):
+    def _fit_next(self, X, left_fit, right_fit):
         # Assume you now have a new warped binary image
         # from the next frame of video (also called "binary_warped")
         # It's now much easier to find line pixels!
@@ -650,17 +655,17 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         margin = 100
         left_lane_inds = (
             (nonzerox > (
-            left_fit[0] * (nonzeroy ** 2) + left_fit[1] * nonzeroy + left_fit[2] - margin)) & (
+                left_fit[0] * (nonzeroy ** 2) + left_fit[1] * nonzeroy + left_fit[2] - margin)) & (
                 nonzerox < (
-                left_fit[0] * (nonzeroy ** 2) + left_fit[1] * nonzeroy + left_fit[
-                    2] + margin)))
+                    left_fit[0] * (nonzeroy ** 2) + left_fit[1] * nonzeroy + left_fit[
+                        2] + margin)))
         right_lane_inds = (
             (nonzerox > (
-            right_fit[0] * (nonzeroy ** 2) + right_fit[1] * nonzeroy + right_fit[
-                2] - margin)) & (
-                nonzerox < (
                 right_fit[0] * (nonzeroy ** 2) + right_fit[1] * nonzeroy + right_fit[
-                    2] + margin)))
+                    2] - margin)) & (
+                nonzerox < (
+                    right_fit[0] * (nonzeroy ** 2) + right_fit[1] * nonzeroy + right_fit[
+                        2] + margin)))
 
         # Again, extract left and right line pixel positions
         leftx = nonzerox[left_lane_inds]
@@ -668,14 +673,19 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         rightx = nonzerox[right_lane_inds]
         righty = nonzeroy[right_lane_inds]
 
-        return leftx,lefty,rightx,righty
+        lane_coords = {}
+        lane_coords['leftx'] = leftx
+        lane_coords['lefty'] = lefty
+        lane_coords['rightx'] = rightx
+        lane_coords['righty'] = righty
+
+        return lane_coords
 
     def transform(self, X, y=None):
 
-
-        left_fitx=self.fitted_param['left_fitx']
-        right_fitx=self.fitted_param['right_fitx']
-        ploty=self.fitted_param['ploty']
+        left_fitx = self.fitted_param['left_fitx']
+        right_fitx = self.fitted_param['right_fitx']
+        ploty = self.fitted_param['ploty']
 
         # Create an image to draw the lines on
         warp_zero = np.zeros_like(X).astype(np.uint8)
@@ -691,24 +701,23 @@ class LaneFinder(BaseEstimator, TransformerMixin):
 
         return color_warp
 
-    def visualize(self, X, y=None,savefile="cache.png"):
+    def visualize(self, X, y=None, savefile="cache.png"):
 
         self.fit(X)
-        left_fitx=self.fitted_param['left_fitx']
-        right_fitx=self.fitted_param['right_fitx']
-        ploty=self.fitted_param['ploty']
+        left_fitx = self.fitted_param['left_fitx']
+        right_fitx = self.fitted_param['right_fitx']
+        ploty = self.fitted_param['ploty']
 
-        #self.out_img[self.nonzeroy[self.left_lane_inds], self.nonzerox[self.left_lane_inds]] = [255, 0, 0]
-        #self.out_img[self.nonzeroy[self.right_lane_inds], self.nonzerox[self.right_lane_inds]] = [0, 0, 255]
-        plt.imshow(self.raw_image,cmap='gray')
-        #plt.imshow(self.out_img)
+        # self.out_img[self.nonzeroy[self.left_lane_inds], self.nonzerox[self.left_lane_inds]] = [255, 0, 0]
+        # self.out_img[self.nonzeroy[self.right_lane_inds], self.nonzerox[self.right_lane_inds]] = [0, 0, 255]
+        plt.imshow(self.raw_image, cmap='gray')
+        # plt.imshow(self.out_img)
         plt.plot(left_fitx, ploty, color='yellow')
         plt.plot(right_fitx, ploty, color='yellow')
         plt.xlim(0, 1280)
         plt.ylim(720, 0)
         plt.savefig(savefile)
         plt.close()
-
 
 
 def find_lane_points(binary_warped):
