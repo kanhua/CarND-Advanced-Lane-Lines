@@ -473,7 +473,13 @@ class LaneFinder(BaseEstimator, TransformerMixin):
                                                           self.fitted_param['left_fit'],
                                                           self.fitted_param['right_fit'])
 
+
             left_fit, right_fit, left_fitx, right_fitx, ploty=self._curve_fit(X,leftx,lefty,rightx,righty)
+
+            if self._base_shifted(left_fitx,right_fitx):
+                leftx, lefty, rightx, righty = self.fit_straight(X)
+                left_fit, right_fit, left_fitx, right_fitx, ploty = self._curve_fit(X, leftx, lefty, rightx, righty)
+
 
 
         self.left_curverad=self._curve_rad(np.max(ploty),left_fit)
@@ -497,6 +503,14 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         self.fitted_param['ploty']=ploty
 
         return self
+
+    def _base_shifted(self,leftx,rightx,margin=50):
+
+        if np.abs(leftx[-1]-self.leftx_base)>margin or np.abs(rightx[-1]-self.rightx_base)>margin:
+            return True
+        else:
+            return False
+
 
     def _reset_out_img(self,X):
         self.out_img=np.dstack((X,X,X))
