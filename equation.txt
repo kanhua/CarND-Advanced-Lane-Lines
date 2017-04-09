@@ -1,0 +1,8 @@
+r = \frac{|x'y''-y'x''|}{\left(x'^2+y'^2\right)^\frac32}
+
+r(x_0)=\frac{(1+(2Ax_0+B)^2)^\frac32}{|2A|}
+
+y(x)=Ax^2+Bx+C
+
+y'=Ax'^2+Bx'+C
+

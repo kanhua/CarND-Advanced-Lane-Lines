@@ -39,9 +39,9 @@ class MyTestCase(unittest.TestCase):
         ax[1].set_title("Binary mask")
         fig.savefig("./output_images/binary_mask_demo.png")
 
-    def perspective_transform_sample(self):
+    def test_perspective_transform_sample(self):
 
-        test_image=cv2.imread("./test_images/straight_lines1.jpg")
+        test_image=cv2.imread("./test_images/test2.jpg")
         n_image=self.camcal.transform(test_image)
         n_image=PerspectiveTransformer().transform(n_image)
 
@@ -52,6 +52,39 @@ class MyTestCase(unittest.TestCase):
         ax[1].set_title("Perspective transform")
         fig.savefig("./output_images/pers_trans_demo.png")
 
+    def test_all_binary_sampl(self):
+
+        test_image=cv2.imread("./test_images/test2.jpg")
+        plt.imshow(np.flip(test_image,axis=2))
+        plt.savefig("./output_images/demo_bin_raw.jpg")
+        plt.close()
+        n_image=self.camcal.transform(test_image)
+        n_image=PerspectiveTransformer().transform(n_image)
+        plt.imshow(np.flip(n_image,axis=2))
+        plt.savefig("./output_images/demo_bin_trans.jpg")
+        plt.close()
+
+        combined,img_comp=yellow_white_hls_2(n_image)
+
+        for img in img_comp.keys():
+            plt.imshow(img_comp[img])
+            plt.title(img)
+            plt.savefig("./output_images/demo_bin_%s.jpg"%img)
+            plt.close()
+
+        plt.imshow(combined)
+        plt.savefig("./output_images/demo_bin_all.jpg")
+
+        pip = Pipeline([('cam', self.camcal), ('undistort', EdgeExtractor()),
+                        ('pers', PerspectiveTransformer())])
+
+        n_image=pip.fit_transform(test_image)
+
+        lane = LaneFinder()
+        savefile = "./output_images/demo_bin_fit.jpg"
+        lane.visualize(n_image, savefile=savefile)
+
+
 
     def test_yellow_white_filter(self):
 
@@ -61,7 +94,7 @@ class MyTestCase(unittest.TestCase):
             n_image=cf.transform(image)
             cv2.imwrite("./image_dump/test_yw_%s.jpg"%idx,n_image*255)
 
-    def run_through_test_images(self):
+    def test_run_through_test_images(self):
 
         lf=LaneFinder()
         pip = Pipeline([('cam', self.camcal), ('undistort', EdgeExtractor()),
@@ -73,8 +106,9 @@ class MyTestCase(unittest.TestCase):
             transformed_img = pip.fit_transform(image)
             left_curverad=lf.left_curverad_m
             right_curverad=lf.right_curverad_m
+            dev=lf.deviation_m
 
-            stacked_img = stack_lane_line(image, transformed_img,left_curverad,right_curverad)
+            stacked_img = stack_lane_line(image, transformed_img,left_curverad,right_curverad,dev)
             cv2.imwrite("./image_dump/test_fp_%s.jpg" % idx, stacked_img)
 
 

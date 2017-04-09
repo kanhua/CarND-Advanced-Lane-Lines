@@ -9,8 +9,6 @@ from copy import copy
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline
 
-from moviepy.editor import VideoFileClip
-
 
 class CameraCalibrator(BaseEstimator, TransformerMixin):
     """
@@ -73,10 +71,10 @@ class PerspectiveTransformer(BaseEstimator, TransformerMixin):
     """
 
     def __init__(self, dst=[
-        [350, 720],
-        [350, 0],
-        [950, 0],
-        [950, 720]
+        [340, 720],
+        [340, 0],
+        [940, 0],
+        [940, 720]
     ],
                  src=[(250, 686),  # left, bottom
                       (583, 458),  # left, top
@@ -152,12 +150,13 @@ def get_cv2_img_size(img):
     return img[:, :, 0].T.shape[:2]
 
 
-def stack_lane_line(road_img, lane_img, left_curverad=None, right_curverad=None):
+def stack_lane_line(road_img, lane_img, left_curverad=None, right_curverad=None, deviation=None):
     # Combine the result with the original image
 
     font = cv2.FONT_HERSHEY_SIMPLEX
     if left_curverad is not None:
-        n_road_img = cv2.putText(road_img, "%s, %s" % (left_curverad, right_curverad),
+        n_road_img = cv2.putText(road_img,
+                                 "left r: {:.2f} m, right r: {:.2f} m, dev: {:.2f} m".format(left_curverad, right_curverad,deviation),
                                  (20, 40), font, 1, (255, 255, 255), 2,
                                  cv2.LINE_AA)
     else:
@@ -290,7 +289,7 @@ class EdgeExtractor(BaseEstimator):
     def transform(self, X):
         # _, n_img = edge_pipeline(X, self.s_thresh, self.sx_thresh)
 
-        n_img = edge_pipeline_v4(X)
+        n_img, _ = yellow_white_hls(X)
 
         return n_img
 
@@ -376,24 +375,85 @@ def edge_pipeline_v3(difficult_image):
     return combined
 
 
-def edge_pipeline_v4(difficult_image):
+def yellow_white_hls(image):
     cf = ColorFilter()
-    wy_binary = cf.transform(difficult_image)
+    wy_binary = cf.transform(image)
 
-    s_binary_2 = hls_select(difficult_image, thresh=(130, 255), channel=2)
-    white_binary = cf._filter_white(difficult_image)
-    yellow_binary = cf._filter_yellow(difficult_image)
+    s_binary_2 = hls_select(image, thresh=(130, 255), channel=2)
+    white_binary = cf._filter_white(image)
+    yellow_binary = cf._filter_yellow(image)
 
     ksize = 9
-    gradx = abs_sobel_thresh(difficult_image, orient='x', sobel_kernel=ksize, thresh=(20, 100))
+    gradx = abs_sobel_thresh(image, orient='x', sobel_kernel=ksize, thresh=(20, 100))
 
-    dir_binary = dir_threshold(difficult_image, thresh=(0.7, 1.3), sobel_kernel=3)
+    dir_binary = dir_threshold(image, thresh=(0.7, 1.3), sobel_kernel=3)
 
     combined = np.zeros_like(s_binary_2)
     combined[((s_binary_2 == 1) & (white_binary == 1)) | (yellow_binary == 1) | (
         (gradx == 1) & (dir_binary == 1) & (white_binary == 1))] = 1
 
-    return combined
+    img_comp={}
+    img_comp['s_binary']=s_binary_2
+    img_comp['white']=white_binary
+    img_comp['yellow']=yellow_binary
+    img_comp['gradx']=gradx
+    img_comp['dir']=dir_binary
+
+    return combined,img_comp
+
+
+def yellow_white_hls_2(image):
+    cf = ColorFilter()
+    wy_binary = cf.transform(image)
+
+    s_binary_2 = hls_select(image, thresh=(130, 255), channel=1)
+    white_binary = cf._filter_white(image)
+    yellow_binary = cf._filter_yellow(image)
+
+    ksize = 9
+    gradx = abs_sobel_thresh(image, orient='x', sobel_kernel=ksize, thresh=(20, 100))
+
+    dir_binary = dir_threshold(image, thresh=(0.7, 1.3), sobel_kernel=3)
+
+    combined = np.zeros_like(s_binary_2)
+    combined[((s_binary_2 == 1) & (gradx == 1)) | (yellow_binary == 1) | (
+        (gradx == 1) & (dir_binary == 1) & (white_binary == 1))] = 1
+
+    img_comp={}
+    img_comp['s_binary']=s_binary_2
+    img_comp['white']=white_binary
+    img_comp['yellow']=yellow_binary
+    img_comp['gradx']=gradx
+    img_comp['dir']=dir_binary
+
+    return combined,img_comp
+
+
+def yellow_white_hls_3(image):
+    cf = ColorFilter()
+    wy_binary = cf.transform(image)
+
+    s_binary_2 = hls_select(image, thresh=(130, 255), channel=2)
+    white_binary = cf._filter_white(image)
+    yellow_binary = cf._filter_yellow(image)
+
+    ksize = 9
+    gradx = abs_sobel_thresh(image, orient='x', sobel_kernel=ksize, thresh=(20, 100))
+
+    dir_binary = dir_threshold(image, thresh=(0.7, 1.3), sobel_kernel=3)
+
+    combined = np.zeros_like(s_binary_2)
+    combined[((s_binary_2 == 1) & (white_binary == 1)) | (yellow_binary == 1) | (
+        (gradx == 1) & (dir_binary == 1) & (white_binary == 1))] = 1
+
+    img_comp={}
+    img_comp['s_binary']=s_binary_2
+    img_comp['white']=white_binary
+    img_comp['yellow']=yellow_binary
+    img_comp['gradx']=gradx
+    img_comp['dir']=dir_binary
+
+    return combined,img_comp
 
 
 def warper(img, src, dst):
@@ -448,18 +508,18 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         self._reset_out_img(X)
 
         if not self.fitted_param:
-            lane_coords = self.fit_straight(X)
+            lane_coords = self.fit_by_window(X)
 
             fitted_param = self._curve_fit(X, **lane_coords)
 
 
         else:
-            lane_coords = self._fit_next(X, self.fitted_param['left_fit'], self.fitted_param['right_fit'])
+            lane_coords = self._fit_by_prev_fit(X, self.fitted_param['left_fit'], self.fitted_param['right_fit'])
 
             fitted_param = self._curve_fit(X, **lane_coords)
 
             if self._base_shifted(fitted_param['left_fitx'], fitted_param['right_fitx']):
-                lane_coords = self.fit_straight(X)
+                lane_coords = self.fit_by_window(X)
                 fitted_param = self._curve_fit(X, **lane_coords)
 
         left_curverad = self._curve_rad(np.max(fitted_param['ploty']), fitted_param['left_fit'])
@@ -471,7 +531,7 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         #         right_curverad = self.righ_curverad
         #         fitted_param = self.fitted_param
 
-        left_curverad_m, right_curverad_m = self._curve_rad_m(X, np.max(fitted_param['ploty']), **lane_coords)
+        left_curverad_m, right_curverad_m, deviation = self._curve_rad_m(X, np.max(fitted_param['ploty']), **lane_coords)
 
         self.lane_coords = copy(lane_coords)
 
@@ -480,6 +540,8 @@ class LaneFinder(BaseEstimator, TransformerMixin):
 
         self.left_curverad_m = left_curverad_m
         self.right_curverad_m = right_curverad_m
+
+        self.deviation_m=deviation
 
         self.fitted_param = copy(fitted_param)
 
@@ -515,7 +577,7 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         self.leftx_base = np.argmax(histogram[:midpoint])
         self.rightx_base = np.argmax(histogram[midpoint:]) + midpoint
 
-    def fit_straight(self, X):
+    def fit_by_window(self, X):
         # Assuming you have created a warped binary image called "X"
         # Take a histogram of the bottom half of the image
         histogram = np.sum(X[int(X.shape[0] / 2):, :], axis=0)
@@ -639,9 +701,21 @@ class LaneFinder(BaseEstimator, TransformerMixin):
             2 * right_fit_cr[0])
         # Now our radius of curvature is in meters
         # print(left_curverad, 'm', right_curverad, 'm')
-        return left_curverad, right_curverad
 
-    def _fit_next(self, X, left_fit, right_fit):
+        # Get vehicle deviation
+        mid_point=X.shape[1]/2.0*xm_per_pix
+
+        bottom_y=ploty[-1]*ym_per_pix
+        left_fitx = left_fit_cr[0] * bottom_y ** 2 + left_fit_cr[1] * bottom_y + left_fit_cr[2]
+        right_fitx = right_fit_cr[0] * bottom_y ** 2 + right_fit_cr[1] * bottom_y + right_fit_cr[2]
+
+        car_point=(right_fitx+left_fitx)/2.0
+
+        deviation=car_point-mid_point
+
+        return left_curverad, right_curverad, deviation
+
+    def _fit_by_prev_fit(self, X, left_fit, right_fit):
         # Assume you now have a new warped binary image
         # from the next frame of video (also called "binary_warped")
         # It's now much easier to find line pixels!
@@ -704,10 +778,10 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         right_fitx = self.fitted_param['right_fitx']
         ploty = self.fitted_param['ploty']
 
-        # self.out_img[self.nonzeroy[self.left_lane_inds], self.nonzerox[self.left_lane_inds]] = [255, 0, 0]
-        # self.out_img[self.nonzeroy[self.right_lane_inds], self.nonzerox[self.right_lane_inds]] = [0, 0, 255]
-        plt.imshow(self.raw_image, cmap='gray')
-        # plt.imshow(self.out_img)
+        self.out_img[self.lane_coords['lefty'], self.lane_coords['leftx']] = [255, 0, 0]
+        self.out_img[self.lane_coords['righty'], self.lane_coords['rightx']] = [0, 0, 255]
+        plt.imshow(self.raw_image, cmap='gray',hold=True)
+        plt.imshow(self.out_img)
         plt.plot(left_fitx, ploty, color='yellow')
         plt.plot(right_fitx, ploty, color='yellow')
         plt.xlim(0, 1280)
@@ -716,78 +790,6 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         plt.close()
 
 
-def find_lane_points(binary_warped):
-    # Assuming you have created a warped binary image called "binary_warped"
-    # Take a histogram of the bottom half of the image
-    histogram = np.sum(binary_warped[int(binary_warped.shape[0] / 2):, :], axis=0)
-    # Create an output image to draw on and  visualize the result
-    out_img = np.dstack((binary_warped, binary_warped, binary_warped)) * 255
-    # Find the peak of the left and right halves of the histogram
-    # These will be the starting point for the left and right lines
-    midpoint = np.int(histogram.shape[0] / 2)
-    leftx_base = np.argmax(histogram[:midpoint])
-    rightx_base = np.argmax(histogram[midpoint:]) + midpoint
-
-    # Choose the number of sliding windows
-    nwindows = 9
-    # Set height of windows
-    window_height = np.int(binary_warped.shape[0] / nwindows)
-    # Identify the x and y positions of all nonzero pixels in the image
-    nonzero = binary_warped.nonzero()
-    nonzeroy = np.array(nonzero[0])
-    nonzerox = np.array(nonzero[1])
-    # Current positions to be updated for each window
-    leftx_current = leftx_base
-    rightx_current = rightx_base
-    # Set the width of the windows +/- margin
-    margin = 100
-    # Set minimum number of pixels found to recenter window
-    minpix = 50
-    # Create empty lists to receive left and right lane pixel indices
-    left_lane_inds = []
-    right_lane_inds = []
-
-    # Step through the windows one by one
-    for window in range(nwindows):
-        # Identify window boundaries in x and y (and right and left)
-        win_y_low = binary_warped.shape[0] - (window + 1) * window_height
-        win_y_high = binary_warped.shape[0] - window * window_height
-        win_xleft_low = leftx_current - margin
-        win_xleft_high = leftx_current + margin
-        win_xright_low = rightx_current - margin
-        win_xright_high = rightx_current + margin
-        # Draw the windows on the visualization image
-        cv2.rectangle(out_img, (win_xleft_low, win_y_low), (win_xleft_high, win_y_high), (0, 255, 0), 2)
-        cv2.rectangle(out_img, (win_xright_low, win_y_low), (win_xright_high, win_y_high), (0, 255, 0), 2)
-        # Identify the nonzero pixels in x and y within the window
-        good_left_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) \
-                          & (nonzerox >= win_xleft_low) & (nonzerox < win_xleft_high)).nonzero()[0]
-        good_right_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) \
-                           & (nonzerox >= win_xright_low) & (nonzerox < win_xright_high)).nonzero()[0]
-        # Append these indices to the lists
-        left_lane_inds.append(good_left_inds)
-        right_lane_inds.append(good_right_inds)
-        # If you found > minpix pixels, recenter next window on their mean position
-        if len(good_left_inds) > minpix:
-            leftx_current = np.int(np.mean(nonzerox[good_left_inds]))
-        if len(good_right_inds) > minpix:
-            rightx_current = np.int(np.mean(nonzerox[good_right_inds]))
-
-    # Concatenate the arrays of indices
-    left_lane_inds = np.concatenate(left_lane_inds)
-    right_lane_inds = np.concatenate(right_lane_inds)
-
-    # Extract left and right line pixel positions
-    leftx = nonzerox[left_lane_inds]
-    lefty = nonzeroy[left_lane_inds]
-    rightx = nonzerox[right_lane_inds]
-    righty = nonzeroy[right_lane_inds]
-
-    # Fit a second order polynomial to each
-    left_fit = np.polyfit(lefty, leftx, 2)
-    right_fit = np.polyfit(righty, rightx, 2)
-
-    return leftx, lefty, left_fit, rightx, righty, right_fit, out_img, nonzerox, nonzeroy, left_lane_inds, right_lane_inds
 
 
 if __name__ == "__main__":
