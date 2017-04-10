@@ -9,7 +9,7 @@ This project implements computer vision techniques to identify the lane lines in
 The codes are organized as below:
 
 - [```image_process.py```](./image_process.py): The core algorithms of the project.
-- [```project_video_ouput.mp4```](./project_output_video.mp4): The output video file.
+- [```project_video_ouput.mp4```](./project_video_output.mp4): The output video file.
 - [```image_tests.py```](./image_tests.py): Unit tests.
 - [```render_video.py```](./render_video.py): Generate the output video.
 
