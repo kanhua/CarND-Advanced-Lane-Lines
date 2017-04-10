@@ -5,6 +5,15 @@
 ## About this project
 This project implements computer vision techniques to identify the lane lines in the images or videos taken by a camera mounted on a car.
 
+### Files
+The codes are organized as below:
+
+- [```image_process.py```](./image_process.py): The core algorithms of the project.
+- [```project_video_ouput.mp4```](./project_output_video.mp4): The output video file.
+- [```image_tests.py```](./image_tests.py): Unit tests.
+- [```render_video.py```](./render_video.py): Generate the output video.
+
+
 ## Camera Calibration
 
 I use a series of chessboard images to find the calibration parameters of the camera images. I first prepare an array of "object points" that the corners of the chessboard images should be mapped to. Then, I use ```cv2.findChessBoardCorners()``` to find the coordinates of the chessboard corners. These coordinates are "image points". I then used these image points and object points as the input of ```cv2.calibrteCamera()``` to find the camera matrix and distortion coefficients required to correct the distorted images. After that, the camera matrix and distortion coefficients are used as the input of ```cv2.undistort()``` to perform the image correction. An example of the image correction is shown as below:
@@ -15,7 +24,7 @@ The process of camera calibration and distorted image corrections are wrapped in
 
 ## Perspective transformation
 
-I use ```cv2.getPerspectiveTransform()``` and ```cv2.warpPerspective()``` to perform the perspective transformation of road images. Since we are dealing with one camera and car system in this project, the parameters for performing perspective transormation is the same. I simply hardcoded the source and destination coordinates by handpicking these coordinates on a straight road images.
+I use ```cv2.getPerspectiveTransform()``` and ```cv2.warpPerspective()``` to perform the perspective transformation of road images. Since we are dealing with one camera and car system in this project, the parameters for performing perspective transformation is the same. I simply hardcoded the source and destination coordinates by handpicking these coordinates on a straight road images.
 These coordinates are:
 
 | Source        | Destination   | 
@@ -37,19 +46,20 @@ This process is wrapped in the class ```image_process.PerspectiveTransformer```.
 I made the following binary image masks in order to identify the lanes in an image. The code of this procedure is in ```yellow_white_HLS()```.
 
 #### Yellow filters
-This filter selects the parts in the image with yellow color. The yellow color is defined as the color values between ```[70, 80, 100]``` and ```[105, 255, 255]``` in HSV space.
+This filter selects the pixels in the image with yellow color. The yellow color is defined as the color values between ```[70, 80, 100]``` and ```[105, 255, 255]``` in HSV space. This is inspired by [Yadav's blog post](./https://medium.com/towards-data-science/robust-lane-finding-using-advanced-computer-vision-techniques-mid-project-update-540387e95ed3#.9a0h3ccqm).
 
 #### White filters
-This filter selects the parts in the image with white color. The white color is deined as the color values between ```[10, 0, 160]``` and ```[255, 80, 255]```.
+This filter selects the pixels in the image with white color. The white color is deined as the color values between ```[10, 0, 160]``` and ```[255, 80, 255]```.
+This is inspired by [Yadav's blog post](./https://medium.com/towards-data-science/robust-lane-finding-using-advanced-computer-vision-techniques-mid-project-update-540387e95ed3#.9a0h3ccqm).
 
 #### S channel
-This filter selects the parts in the image that has color values between ```[0, 0, 130]``` and ```[0, 0, 255]``` in HLS color space.
+This filter selects the pixels in the image that has color values between ```[0, 0, 130]``` and ```[0, 0, 255]``` in HLS color space.
 
 #### X gradient
-The filter selects the parts in the image that has high grdient in the x direction in gray scale. In practice, this implemented by applying Sobel matrix to the image using ```cv2.Sobel```. The threshold is selected to be between 0.7 and 1.3.
+The filter selects the pixels in the image that has high gradient in the x direction in gray scale. In practice, this implemented by applying Sobel matrix to the image using ```cv2.Sobel```. The threshold is selected to be between 0.7 and 1.3.
 
 #### Directional gradient
-The filter selects the parts in the image has image gradient in certain direction, which is defined by 0.7<arctan(grady/gradx)<1.3
+The filter selects the pixels in the image has image gradient in certain direction, which is defined by 0.7<arctan(grady/gradx)<1.3
 
 The examples of these images are shown in the following graph:
 
@@ -67,16 +77,16 @@ This process in written in the function ```image_process.yellow_white_hls()```.
 
 ## Fit the Lanes
 
-I use sliding windows to find the lanes coordinates in the image. This method indentifies the lanes using the following procedures:
+I use sliding windows to find the lanes coordinates in the image. This method identifies the lanes using the following procedures:
 
 1. The image is sliced in 9 portions in the y direction.
 2. In the top slice, set two windows that are centered at the peaks of histograms.
-3. All the color pixels within the windows are set to be the coordiates of the lane for fitting.
+3. All the color pixels within the windows are set to be the coordinates of the lane for fitting.
 4. If there are enough points in the window, recenter the window for the next slice.
-5. Iterate step 3 throughout all the windows.
+5. Iterate step 3 and 4 throughout all the windows.
 6. Fit all points found in all the windows with quadratic polynomials.
 
-An exmple image of this process is shown below:
+An example image of this process is shown below:
 ![fitted_lane](./output_images/demo_bin_fit.jpg)
 
 The codes of these procedures can be found in ```image_process.LandFinder.fit_by_window()```.
@@ -116,7 +126,7 @@ The procedures of calculating the fitting parameters is in ```image_process.Land
 
 ### Result
 
-Below is a final image with the radius of curvatures of left and right lanes marked on the top of the image:
+Below is a final image with the radius of curvatures and deviations marked on top of the image:
 
 ![full_image](./image_dump/test_fp_1.jpg)
 
@@ -129,7 +139,7 @@ Overcoming the shadows and different color of pavements is very challenging in t
 
 Another difficulty is getting accurate radius of curvature from the white dashed land lines. The spaces between each segment of white lines causes more error in the fitting. 
 
-To obtain better results of a frame in a video, one has to use the information of previous frames in the video to help reduce the errors of a single frame.
+To obtain better results of a frame in a video, I need to use the information of previous frames in the video to help reduce the errors of a single frame. This should give more robust fitting results.
 
 
 
