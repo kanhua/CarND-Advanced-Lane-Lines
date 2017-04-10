@@ -3,7 +3,7 @@
 ### Example user template
 
 guest_scripts/
-image_dump/
+# image_dump/
 # IntelliJ project files
 .idea
 *.iml
