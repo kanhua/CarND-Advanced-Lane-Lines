@@ -141,7 +141,7 @@ Since our lanes are fitted with a quadratic polynomial:
 
 ![eq2](./output_images/second_order_eq.png)
 
-The radius of curvature at __(x0,y0)__ can then be written as:
+The radius of curvature at _(x0,y0)_ can then be written as:
 
 ![eq3](./output_images/radius_curvature_2.png)
 
@@ -178,11 +178,6 @@ Overcoming the shadows and different color of pavements is very challenging in t
 Another difficulty is getting accurate radius of curvature from the white dashed land lines. The spaces between each segment of white lines causes more error in the fitting. 
 
 To obtain better results of a frame in a video, more different sanity checks could be implemented to further reduce the errors of a single frame.
-
-
-
-
-
 
 
 
