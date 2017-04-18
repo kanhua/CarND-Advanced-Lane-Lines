@@ -35,7 +35,7 @@ pip2 = Pipeline([('clahe',CLAHE()),('cam', camcal), ('undistort', EdgeExtractor(
 
 def process_image(X):
     nX=np.flip(X,axis=2)
-    cv2.imwrite("./image_dump/current_frame.jpg",X)
+    #cv2.imwrite("./image_dump/current_frame.jpg",X)
     nX=pip.fit_transform(nX)
     return stack_lane_line(X,nX,lf.left_curverad_m,lf.right_curverad_m,lf.deviation_m)
 

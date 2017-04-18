@@ -128,7 +128,7 @@ The procedures of calculating the fitting parameters is in ```image_process.Land
 
 Below is a final image with the radius of curvatures and deviations marked on top of the image:
 
-![full_image](./image_dump/test_fp_1.jpg)
+![full_image](./output_images/test1_fp.jpg)
 
 The resulting video is [project_video_output.mp4](./project_video_output.mp4)
 
