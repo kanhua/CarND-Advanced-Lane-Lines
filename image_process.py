@@ -341,8 +341,6 @@ def yellow_white_luv(image):
     l_binary = np.logical_not(l_binary)
 
     combined = np.zeros_like(s_binary_2)
-    # combined[((s_binary_2 == 1) & (gradx == 1)) | (yellow_binary == 1) | (
-    #    (gradx == 1) & (dir_binary == 1) & (white_binary == 1))] = 1
 
     combined[(yellow_binary == 1) | ((l_binary == 1) & (white_binary == 1))] = 1
 
@@ -417,15 +415,27 @@ class LaneFinder(BaseEstimator, TransformerMixin):
 
             fitted_param = self._curve_fit(X, **lane_coords)
 
-
         else:
+            # if self.fitted_param exists, look for lane points by searching the proximity of the previously fitted lane
+
             lane_coords = self._fit_by_prev_fit(X, self.fitted_param['left_fit'], self.fitted_param['right_fit'])
 
             fitted_param = self._curve_fit(X, **lane_coords)
 
-            if self._base_shifted(fitted_param['left_fitx'], fitted_param['right_fitx']):
-                lane_coords = self.fit_by_window(X)
-                fitted_param = self._curve_fit(X, **lane_coords)
+            # Sanity check 1
+            #if self._base_shifted(fitted_param['left_fitx'], fitted_param['right_fitx']):
+            #    self._find_base(X)
+            #    lane_coords = self.fit_by_window(X)
+            #    fitted_param = self._curve_fit(X, **lane_coords)
+
+        #Check fitted lane separation
+        if not self._check_lane_separation(fitted_param['left_fitx'],fitted_param['right_fitx']):
+            if self.fitted_param:
+                fitted_param=self.fitted_param
+                lane_coords=self.lane_coords
+
+
+        # Calculate the curvature
 
         left_curverad = self._curve_rad(np.max(fitted_param['ploty']), fitted_param['left_fit'])
         right_curverad = self._curve_rad(np.max(fitted_param['ploty']), fitted_param['right_fit'])
@@ -454,11 +464,41 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         return self
 
     def _base_shifted(self, leftx, rightx, margin=50):
+        """
+        Check if the found lane shifts too much
+        
+        :param leftx: 
+        :param rightx: 
+        :param margin: 
+        :return: 
+        """
 
         if np.abs(leftx[-1] - self.leftx_base) > margin or np.abs(rightx[-1] - self.rightx_base) > margin:
             return True
         else:
             return False
+
+    def _check_lane_separation(self,leftx,rightx,ratio_thres=0.1):
+        """
+        Check if the fitted lane separation is correct. Return False if anything wrong happens
+        
+        :param leftx: 
+        :param rightx: 
+        :param ratio_thres: 
+        :return: 
+        """
+
+        sep_d=rightx-leftx
+
+        if np.any(sep_d<=0):
+            return False
+
+        if (np.max(sep_d)-np.min(sep_d))>np.mean(sep_d)*ratio_thres:
+            return False
+
+        return True
+
+
 
     def _lr_curve_rad_cmp(self, prev_curve_rad, curr_curve_rad, margin_ratio=0.1):
         if np.abs(prev_curve_rad / curr_curve_rad - 1) > margin_ratio:

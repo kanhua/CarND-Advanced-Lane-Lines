@@ -28,6 +28,25 @@ class MyTestCase(unittest.TestCase):
         ax[1].set_title("Corrected image")
         fig.savefig("./output_images/camcal.png", bbox_inches='tight')
 
+    def test_undistort_road_sample(self):
+
+
+        for f in self.files:
+
+            _, fname = split(f)
+            fparent, ext = splitext(fname)
+
+            test_image = cv2.imread(f)
+            undistort_image = self.camcal.transform(test_image)
+            fig, ax = plt.subplots(1, 2)
+            ax[0].imshow(np.flip(test_image,axis=2))
+            ax[0].set_title("Raw image")
+            ax[1].imshow(np.flip(undistort_image,axis=2))
+            ax[1].set_title("Corrected image")
+            fig.savefig("./output_images/{}_undistort.png".format(fparent), bbox_inches='tight')
+
+
+
     def test_binary_sample(self):
 
         test_image = cv2.imread("./test_images/test1.jpg")

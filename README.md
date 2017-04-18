@@ -22,6 +22,10 @@ I use a series of chessboard images to find the calibration parameters of the ca
 
 The process of camera calibration and distorted image corrections are wrapped in the class ```image_process.CameraCalibrator```.
 
+Here is an example of correcting the road image using this calibartion:
+
+![road image](./output_images/test1_undistort.png)
+
 ## Perspective transformation
 
 I use ```cv2.getPerspectiveTransform()``` and ```cv2.warpPerspective()``` to perform the perspective transformation of road images. Since we are dealing with one camera and car system in this project, the parameters for performing perspective transformation is the same. I simply hardcoded the source and destination coordinates by handpicking these coordinates on a straight road images.
@@ -52,8 +56,18 @@ This filter selects the pixels in the image with yellow color. The yellow color 
 This filter selects the pixels in the image with white color. The white color is deined as the color values between ```[10, 0, 160]``` and ```[255, 80, 255]```.
 This is inspired by [Yadav's blog post](./https://medium.com/towards-data-science/robust-lane-finding-using-advanced-computer-vision-techniques-mid-project-update-540387e95ed3#.9a0h3ccqm).
 
-#### S channel
-This filter selects the pixels in the image that has color values between ```[0, 0, 130]``` and ```[0, 0, 255]``` in HLS color space.
+#### S channel of HLS space
+This filter selects the pixels in the image that has color values between ```[0, 0, 130]``` and ```[0, 0, 255]``` in HLS color space. This channel works well for selecting yellow and white parts of an image, but it is easily interfered by shadows or bright pavement.
+
+#### L channel of LUV space.
+The filter selects the pixels in the image that has color values between ```[0, 0, 130]``` and ```[0, 0, 255]``` in LUV color space and then perform an _NOT_ operation, namely, 
+
+```python
+l_binary = channel_select(image, color_space='LUV', thresh=(70, 210), channel=0)
+l_binary = np.logical_not(l_binary)
+```
+
+This channel selects white and black parts of an image.
 
 #### X gradient
 The filter selects the pixels in the image that has high gradient in the x direction in gray scale. In practice, this implemented by applying Sobel matrix to the image using ```cv2.Sobel```. The threshold is selected to be between 0.7 and 1.3.
@@ -65,14 +79,35 @@ The examples of these images are shown in the following graph:
 
 ![lane finding](./output_images/binary_mask_breakdown.png)
 
-Through trying a lot of combinations, I found the following operation
-```
-((s_channel == 1) & (white == 1)) | (yellow == 1) | (
-        (grad_x == 1) & (directional == 1) & (white == 1)) = 1
-```
-can give reasonable results across all images in the project video.
 
-This process in written in the function ```image_process.yellow_white_hls()```.
+From the above figure, it can be easily observed that combining L channel, white color, and yellow color can give very reasonable result for this project.
+
+This process in written in the function ```image_process.yellow_white_luv()```.
+
+```python
+def yellow_white_luv(image):
+	...
+
+    s_binary_2 = hls_select(image, thresh=(130, 255), channel=1)
+    white_binary = cf._filter_white(image)
+    yellow_binary = cf._filter_yellow(image)
+
+    ksize = 9
+    gradx = abs_sobel_thresh(image, orient='x', sobel_kernel=ksize, thresh=(20, 100))
+
+    dir_binary = dir_threshold(image, thresh=(0.7, 1.3), sobel_kernel=3)
+
+    l_binary = channel_select(image, color_space='LUV', thresh=(70, 210), channel=0)
+    l_binary = np.logical_not(l_binary)
+
+    combined = np.zeros_like(s_binary_2)
+
+    combined[(yellow_binary == 1) | ((l_binary == 1) & (white_binary == 1))] = 1
+
+    ...
+
+
+```
 
 
 ## Fit the Lanes
@@ -90,6 +125,9 @@ An example image of this process is shown below:
 ![fitted_lane](./output_images/demo_bin_fit.jpg)
 
 The codes of these procedures can be found in ```image_process.LandFinder.fit_by_window()```.
+
+After the first set of fitted parameters are found, the lane line points of subsequent frames are located by searching the neighbors of the lane line points of its previous frame. This part of the code can be found in ```image_process.LandFinder._fit_by_prev_fit()```.
+
 
 ## Find the radius of curvature of the lane
 
@@ -135,11 +173,11 @@ The resulting video is [project_video_output.mp4](./project_video_output.mp4)
 
 ## Discussion
 
-Overcoming the shadows and different color of pavements is very challenging in this project. It is quite difficult to find a set of parameter that works for all road conditions. Different colors of lane lines or pavement are likely to fail the lane line identification algorithm.
+Overcoming the shadows and different color of pavements is very challenging in this project. Different colors of lane lines or pavement are likely to fail the lane line identification algorithm.
 
 Another difficulty is getting accurate radius of curvature from the white dashed land lines. The spaces between each segment of white lines causes more error in the fitting. 
 
-To obtain better results of a frame in a video, I need to use the information of previous frames in the video to help reduce the errors of a single frame. This should give more robust fitting results.
+To obtain better results of a frame in a video, more different sanity checks could be implemented to further reduce the errors of a single frame.
 
 
 
