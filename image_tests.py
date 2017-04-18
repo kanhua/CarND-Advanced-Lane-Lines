@@ -54,7 +54,7 @@ class MyTestCase(unittest.TestCase):
 
     def test_all_binary_sampl(self):
 
-        test_image=cv2.imread("./test_images/test2.jpg")
+        test_image=cv2.imread("./test_images/test1.jpg")
         plt.imshow(np.flip(test_image,axis=2))
         plt.savefig("./output_images/demo_bin_raw.jpg")
         plt.close()
@@ -95,6 +95,11 @@ class MyTestCase(unittest.TestCase):
             cv2.imwrite("./image_dump/test_yw_%s.jpg"%idx,n_image*255)
 
     def test_run_through_test_images(self):
+        """
+        Test the full pipeline of lane detection and labeling
+        
+        :return: 
+        """
 
         lf=LaneFinder()
         pip = Pipeline([('cam', self.camcal), ('undistort', EdgeExtractor()),
@@ -113,6 +118,11 @@ class MyTestCase(unittest.TestCase):
 
 
     def test_lane_fitting(self):
+        """
+        Test the results of LaneFinder class
+        
+        :return: 
+        """
 
         pip = Pipeline([('cam', self.camcal), ('undistort', EdgeExtractor()),
                         ('pers', PerspectiveTransformer())])
@@ -125,6 +135,11 @@ class MyTestCase(unittest.TestCase):
             lane.visualize(image,savefile=savefile)
 
     def test_adj_contrast(self):
+        """
+        Test adjusting the contract with CLAHE
+        
+        :return: 
+        """
 
         clahe=CLAHE()
 

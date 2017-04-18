@@ -156,7 +156,8 @@ def stack_lane_line(road_img, lane_img, left_curverad=None, right_curverad=None,
     font = cv2.FONT_HERSHEY_SIMPLEX
     if left_curverad is not None:
         n_road_img = cv2.putText(road_img,
-                                 "left r: {:.2f} m, right r: {:.2f} m, dev: {:.2f} m".format(left_curverad, right_curverad,deviation),
+                                 "left r: {:.2f} m, right r: {:.2f} m, dev: {:.2f} m".format(left_curverad,
+                                                                                             right_curverad, deviation),
                                  (20, 40), font, 1, (255, 255, 255), 2,
                                  cv2.LINE_AA)
     else:
@@ -247,6 +248,24 @@ def hsv_select(img, thresh=(0, 255), channel=2):
     return binary_output
 
 
+def channel_select(img, color_space='HSV', thresh=(0, 255), channel=2):
+    """
+    A more general version of generating a mask from a single channel
+    
+    :param img: image array 
+    :param color_space: color space code, e.g., 'HSV','Lab','HLS'
+    :param thresh: tuple of (min_bound, max_bound)
+    :param channel: integer. Color channel to selelct
+    :return: binary mask array
+    """
+    color_code = eval('cv2.COLOR_RGB2{}'.format(color_space))
+    new_img = cv2.cvtColor(img, color_code)
+    s_channel = new_img[:, :, channel]
+    binary_output = np.zeros_like(s_channel)
+    binary_output[(s_channel > thresh[0]) & (s_channel <= thresh[1])] = 1
+    return binary_output
+
+
 def get_calibration_factors(image_folder='./camera_cal/calibration*.jpg', nx=9, ny=5):
     # prepare object points, like (0,0,0), (1,0,0), (2,0,0) ....,(6,5,0)
     objp = np.zeros((ny * nx, 3), np.float32)
@@ -280,7 +299,6 @@ def get_calibration_factors(image_folder='./camera_cal/calibration*.jpg', nx=9, 
     return objpoints, imgpoints
 
 
-
 class EdgeExtractor(BaseEstimator):
     def __init__(self, s_thresh=(100, 255), sx_thresh=(50, 200)):
         self.s_thresh = s_thresh
@@ -289,7 +307,9 @@ class EdgeExtractor(BaseEstimator):
     def transform(self, X):
         # _, n_img = edge_pipeline(X, self.s_thresh, self.sx_thresh)
 
-        n_img, _ = yellow_white_hls(X)
+        #n_img, _ = yellow_white_hls(X)
+
+        n_img,_=yellow_white_luv(X)
 
         return n_img
 
@@ -392,14 +412,14 @@ def yellow_white_hls(image):
     combined[((s_binary_2 == 1) & (white_binary == 1)) | (yellow_binary == 1) | (
         (gradx == 1) & (dir_binary == 1) & (white_binary == 1))] = 1
 
-    img_comp={}
-    img_comp['s_binary']=s_binary_2
-    img_comp['white']=white_binary
-    img_comp['yellow']=yellow_binary
-    img_comp['gradx']=gradx
-    img_comp['dir']=dir_binary
+    img_comp = {}
+    img_comp['s_binary'] = s_binary_2
+    img_comp['white'] = white_binary
+    img_comp['yellow'] = yellow_binary
+    img_comp['gradx'] = gradx
+    img_comp['dir'] = dir_binary
 
-    return combined,img_comp
+    return combined, img_comp
 
 
 def yellow_white_hls_2(image):
@@ -415,18 +435,27 @@ def yellow_white_hls_2(image):
 
     dir_binary = dir_threshold(image, thresh=(0.7, 1.3), sobel_kernel=3)
 
+    l_binary = channel_select(image, color_space='LUV', thresh=(70, 210), channel=0)
+    l_binary = np.logical_not(l_binary)
+
     combined = np.zeros_like(s_binary_2)
     combined[((s_binary_2 == 1) & (gradx == 1)) | (yellow_binary == 1) | (
         (gradx == 1) & (dir_binary == 1) & (white_binary == 1))] = 1
 
-    img_comp={}
-    img_comp['s_binary']=s_binary_2
-    img_comp['white']=white_binary
-    img_comp['yellow']=yellow_binary
-    img_comp['gradx']=gradx
-    img_comp['dir']=dir_binary
+    # Perform l_binary+white_channel
+    l_w = np.zeros_like(s_binary_2)
+    l_w[(l_binary == 1) & (white_binary == 1)] = 1
 
-    return combined,img_comp
+    img_comp = {}
+    img_comp['s_binary'] = s_binary_2
+    img_comp['white'] = white_binary
+    img_comp['yellow'] = yellow_binary
+    img_comp['gradx'] = gradx
+    img_comp['dir'] = dir_binary
+    img_comp['l_binary'] = l_binary
+    img_comp['l_bin_w'] = l_w
+
+    return combined, img_comp
 
 
 def yellow_white_hls_3(image):
@@ -446,14 +475,52 @@ def yellow_white_hls_3(image):
     combined[((s_binary_2 == 1) & (white_binary == 1)) | (yellow_binary == 1) | (
         (gradx == 1) & (dir_binary == 1) & (white_binary == 1))] = 1
 
-    img_comp={}
-    img_comp['s_binary']=s_binary_2
-    img_comp['white']=white_binary
-    img_comp['yellow']=yellow_binary
-    img_comp['gradx']=gradx
-    img_comp['dir']=dir_binary
+    img_comp = {}
+    img_comp['s_binary'] = s_binary_2
+    img_comp['white'] = white_binary
+    img_comp['yellow'] = yellow_binary
+    img_comp['gradx'] = gradx
+    img_comp['dir'] = dir_binary
 
-    return combined,img_comp
+    return combined, img_comp
+
+
+def yellow_white_luv(image):
+    cf = ColorFilter()
+    wy_binary = cf.transform(image)
+
+    s_binary_2 = hls_select(image, thresh=(130, 255), channel=1)
+    white_binary = cf._filter_white(image)
+    yellow_binary = cf._filter_yellow(image)
+
+    ksize = 9
+    gradx = abs_sobel_thresh(image, orient='x', sobel_kernel=ksize, thresh=(20, 100))
+
+    dir_binary = dir_threshold(image, thresh=(0.7, 1.3), sobel_kernel=3)
+
+    l_binary = channel_select(image, color_space='LUV', thresh=(70, 210), channel=0)
+    l_binary = np.logical_not(l_binary)
+
+    combined = np.zeros_like(s_binary_2)
+    # combined[((s_binary_2 == 1) & (gradx == 1)) | (yellow_binary == 1) | (
+    #    (gradx == 1) & (dir_binary == 1) & (white_binary == 1))] = 1
+
+    combined[(yellow_binary == 1) | ((l_binary == 1) & (white_binary == 1))] = 1
+
+    # Perform l_binary+white_channel
+    l_w = np.zeros_like(s_binary_2)
+    l_w[(l_binary == 1) & (white_binary == 1)] = 1
+
+    img_comp = {}
+    img_comp['s_binary'] = s_binary_2
+    img_comp['white'] = white_binary
+    img_comp['yellow'] = yellow_binary
+    img_comp['gradx'] = gradx
+    img_comp['dir'] = dir_binary
+    img_comp['l_binary'] = l_binary
+    img_comp['l_bin_w'] = l_w
+
+    return combined, img_comp
 
 
 def warper(img, src, dst):
@@ -476,9 +543,8 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         self.lane_coords = {}
         self.fitted_param = {}
 
-        self.left_curverad=None
-        self.righ_curverad=None
-
+        self.left_curverad = None
+        self.righ_curverad = None
 
     def _default_setup(self):
         # The following initialization is for temporary use only,
@@ -531,7 +597,8 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         #         right_curverad = self.righ_curverad
         #         fitted_param = self.fitted_param
 
-        left_curverad_m, right_curverad_m, deviation = self._curve_rad_m(X, np.max(fitted_param['ploty']), **lane_coords)
+        left_curverad_m, right_curverad_m, deviation = self._curve_rad_m(X, np.max(fitted_param['ploty']),
+                                                                         **lane_coords)
 
         self.lane_coords = copy(lane_coords)
 
@@ -541,7 +608,7 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         self.left_curverad_m = left_curverad_m
         self.right_curverad_m = right_curverad_m
 
-        self.deviation_m=deviation
+        self.deviation_m = deviation
 
         self.fitted_param = copy(fitted_param)
 
@@ -703,15 +770,15 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         # print(left_curverad, 'm', right_curverad, 'm')
 
         # Get vehicle deviation
-        mid_point=X.shape[1]/2.0*xm_per_pix
+        mid_point = X.shape[1] / 2.0 * xm_per_pix
 
-        bottom_y=ploty[-1]*ym_per_pix
+        bottom_y = ploty[-1] * ym_per_pix
         left_fitx = left_fit_cr[0] * bottom_y ** 2 + left_fit_cr[1] * bottom_y + left_fit_cr[2]
         right_fitx = right_fit_cr[0] * bottom_y ** 2 + right_fit_cr[1] * bottom_y + right_fit_cr[2]
 
-        car_point=(right_fitx+left_fitx)/2.0
+        car_point = (right_fitx + left_fitx) / 2.0
 
-        deviation=car_point-mid_point
+        deviation = car_point - mid_point
 
         return left_curverad, right_curverad, deviation
 
@@ -780,7 +847,7 @@ class LaneFinder(BaseEstimator, TransformerMixin):
 
         self.out_img[self.lane_coords['lefty'], self.lane_coords['leftx']] = [255, 0, 0]
         self.out_img[self.lane_coords['righty'], self.lane_coords['rightx']] = [0, 0, 255]
-        plt.imshow(self.raw_image, cmap='gray',hold=True)
+        plt.imshow(self.raw_image, cmap='gray', hold=True)
         plt.imshow(self.out_img)
         plt.plot(left_fitx, ploty, color='yellow')
         plt.plot(right_fitx, ploty, color='yellow')
@@ -788,8 +855,6 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         plt.ylim(720, 0)
         plt.savefig(savefile)
         plt.close()
-
-
 
 
 if __name__ == "__main__":
