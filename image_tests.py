@@ -72,7 +72,7 @@ class MyTestCase(unittest.TestCase):
         ax[1].set_title("Perspective transform")
         fig.savefig("./output_images/pers_trans_demo.png", bbox_inches='tight')
 
-    def test_all_binary_sampl(self):
+    def test_all_binary_sample(self):
 
         test_image = cv2.imread("./test_images/test1.jpg")
         plt.imshow(np.flip(test_image, axis=2))

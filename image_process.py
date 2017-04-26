@@ -310,6 +310,7 @@ class EdgeExtractor(BaseEstimator):
         #n_img, _ = yellow_white_hls(X)
 
         n_img,_=yellow_white_luv(X)
+        #n_img,_=yellow_white_luv_gradx(X)
 
         return n_img
 
@@ -359,6 +360,58 @@ def yellow_white_luv(image):
 
     return combined, img_comp
 
+def yellow_white_luv_gradx(image):
+    cf = ColorFilter()
+    wy_binary = cf.transform(image)
+
+    s_binary_2 = hls_select(image, thresh=(130, 255), channel=1)
+    white_binary = cf._filter_white(image)
+    yellow_binary = cf._filter_yellow(image)
+
+    ksize = 9
+    gradx = abs_sobel_thresh(image, orient='x', sobel_kernel=ksize, thresh=(20, 100))
+
+    dir_binary = dir_threshold(image, thresh=(0.7, 1.3), sobel_kernel=3)
+
+    l_binary = channel_select(image, color_space='LUV', thresh=(70, 210), channel=0)
+    l_binary = np.logical_not(l_binary)
+
+    combined = np.zeros_like(s_binary_2)
+
+    combined[(yellow_binary == 1) | ((l_binary == 1) & (white_binary == 1))|(gradx==1)] = 1
+
+    # Perform l_binary+white_channel
+    l_w = np.zeros_like(s_binary_2)
+    l_w[(l_binary == 1) & (white_binary == 1)] = 1
+
+    img_comp = {}
+    img_comp['s_binary'] = s_binary_2
+    img_comp['white'] = white_binary
+    img_comp['yellow'] = yellow_binary
+    img_comp['gradx'] = gradx
+    img_comp['dir'] = dir_binary
+    img_comp['l_binary'] = l_binary
+    img_comp['l_bin_w'] = l_w
+
+    return combined, img_comp
+
+
+def load_straight_lane_image():
+
+    dummy_img = cv2.imread('./camera_cal/calibration1.jpg')
+    img_size = get_cv2_img_size(dummy_img)
+    IMG_FOLDER = './camera_cal/calibration*.jpg'
+    NX = 9
+    NY = 6
+    camcal = CameraCalibrator(img_size, IMG_FOLDER, NX, NY)
+
+    all_pipes = [('cam', camcal), ('undistort', EdgeExtractor()),
+                 ('pers', PerspectiveTransformer())]
+    pip = Pipeline(all_pipes)
+    lane_cal_image = pip.transform(cv2.imread("./test_images/straight_lines1.jpg"))
+
+    return lane_cal_image
+
 
 def warper(img, src, dst):
     # Compute and apply perpective transform
@@ -383,34 +436,16 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         self.left_curverad = None
         self.righ_curverad = None
 
-    def _default_setup(self):
-        # The following initialization is for temporary use only,
-        # because the coordinates of the perpective transformation is man made
 
-        dummy_img = cv2.imread('./camera_cal/calibration1.jpg')
-        img_size = get_cv2_img_size(dummy_img)
-        IMG_FOLDER = './camera_cal/calibration*.jpg'
-        NX = 9
-        NY = 6
-        camcal = CameraCalibrator(img_size, IMG_FOLDER, NX, NY)
-
-        all_pipes = [('cam', camcal), ('undistort', EdgeExtractor()),
-                     ('pers', PerspectiveTransformer())]
-        pip = Pipeline(all_pipes)
-        lane_cal_image = pip.transform(cv2.imread("./test_images/straight_lines1.jpg"))
-
-        self._find_base(lane_cal_image)
 
     def fit(self, X, y=None):
 
         self.raw_image = np.copy(X)
 
-        if self.leftx_base is None:
-            self._default_setup()
-
         self._reset_out_img(X)
 
         if not self.fitted_param:
+            self._find_base(X)
             lane_coords = self.fit_by_window(X)
 
             fitted_param = self._curve_fit(X, **lane_coords)
