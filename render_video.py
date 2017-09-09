@@ -8,9 +8,9 @@ from moviepy.editor import VideoFileClip
 from image_process import LaneFinder, EdgeExtractor, \
     PerspectiveTransformer, CLAHE, stack_lane_line, get_cv2_img_size, CameraCalibrator
 
-input_video_file = "project_video.mp4"
+input_video_file = "challenge_video.mp4"
 
-output_video_file = "project_video_output.mp4"
+output_video_file = "challenge_video_output.mp4"
 
 files = glob.glob("./test_images/test*.jpg")
 dummy_img = cv2.imread('./camera_cal/calibration1.jpg')

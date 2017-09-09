@@ -309,9 +309,11 @@ class EdgeExtractor(BaseEstimator):
 
         #n_img, _ = yellow_white_hls(X)
 
-        n_img,_=yellow_white_luv(X)
+        n_img1,_=yellow_white_luv(X)
         #n_img,_=yellow_white_luv_gradx(X)
+        n_img2,_=simple_luv_lab(X)
 
+        n_img=n_img1|n_img2
         return n_img
 
     def fit(self, X, y):
@@ -394,6 +396,19 @@ def yellow_white_luv_gradx(image):
     img_comp['l_bin_w'] = l_w
 
     return combined, img_comp
+
+def simple_luv_lab(image):
+
+    b_binary = channel_select(image, color_space='Lab', thresh=(0, 120), channel=2)
+    l_binary = channel_select(image, color_space='LUV', thresh=(170, 255), channel=0)
+
+    img_comp={}
+    img_comp['b_binary']=b_binary
+    img_comp['l_binary']=l_binary
+    combined=b_binary|l_binary
+
+    return combined,img_comp
+
 
 
 def load_straight_lane_image():
@@ -513,7 +528,7 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         else:
             return False
 
-    def _check_lane_separation(self,leftx,rightx,ratio_thres=0.1):
+    def _check_lane_separation(self,leftx,rightx,ratio_thres=0.5):
         """
         Check if the fitted lane separation is correct. Return False if anything wrong happens
         
