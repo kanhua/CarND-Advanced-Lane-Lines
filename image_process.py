@@ -20,9 +20,10 @@ class CameraCalibrator(BaseEstimator, TransformerMixin):
         self.img_size = img_size
 
         if os.path.exists(obj_img_cache) == True and recalc == False:
-            cache = pickle.load(open(obj_img_cache, 'rb'))
-            self.objpoints = cache['objpoints']
-            self.imgpoints = cache['imgpoints']
+            with open(obj_img_cache,'rb') as fp:
+                cache = pickle.load(fp)
+                self.objpoints = cache['objpoints']
+                self.imgpoints = cache['imgpoints']
 
         else:
             self.objpoints, self.imgpoints = get_calibration_factors(image_folder=img_folder,
@@ -313,8 +314,9 @@ class EdgeExtractor(BaseEstimator):
         #n_img,_=yellow_white_luv_gradx(X)
         n_img2,_=simple_luv_lab(X)
 
-        n_img=n_img1|n_img2
-        return n_img
+
+        #n_img=n_img1|n_img2
+        return n_img1
 
     def fit(self, X, y):
         return self
@@ -328,39 +330,32 @@ class EdgeExtractor(BaseEstimator):
 
 
 def yellow_white_luv(image):
+
     cf = ColorFilter()
     wy_binary = cf.transform(image)
 
-    s_binary_2 = hls_select(image, thresh=(130, 255), channel=1)
     white_binary = cf._filter_white(image)
     yellow_binary = cf._filter_yellow(image)
 
-    ksize = 9
-    gradx = abs_sobel_thresh(image, orient='x', sobel_kernel=ksize, thresh=(20, 100))
-
-    dir_binary = dir_threshold(image, thresh=(0.7, 1.3), sobel_kernel=3)
 
     l_binary = channel_select(image, color_space='LUV', thresh=(70, 210), channel=0)
     l_binary = np.logical_not(l_binary)
 
-    combined = np.zeros_like(s_binary_2)
+    combined = np.zeros_like(l_binary)
 
     combined[(yellow_binary == 1) | ((l_binary == 1) & (white_binary == 1))] = 1
 
     # Perform l_binary+white_channel
-    l_w = np.zeros_like(s_binary_2)
+    l_w = np.zeros_like(l_binary)
     l_w[(l_binary == 1) & (white_binary == 1)] = 1
 
     img_comp = {}
-    img_comp['s_binary'] = s_binary_2
     img_comp['white'] = white_binary
     img_comp['yellow'] = yellow_binary
-    img_comp['gradx'] = gradx
-    img_comp['dir'] = dir_binary
     img_comp['l_binary'] = l_binary
     img_comp['l_bin_w'] = l_w
 
-    return combined, img_comp
+    return combined.astype(np.uint8), img_comp
 
 def yellow_white_luv_gradx(image):
     cf = ColorFilter()
@@ -407,7 +402,7 @@ def simple_luv_lab(image):
     img_comp['l_binary']=l_binary
     combined=b_binary|l_binary
 
-    return combined,img_comp
+    return combined.astype(np.uint8),img_comp
 
 
 
@@ -747,6 +742,29 @@ class LaneFinder(BaseEstimator, TransformerMixin):
 
         return lane_coords
 
+    def gaussian_filter(self, left_on, right_on):
+        """
+        Generate the gaussian distribution centered on the lane line based on fitted results.
+
+        :param left_on: True if show the left lane line
+        :param right_on: True if show the right lane line
+        :return: the filtered image
+        """
+        new_image = np.empty_like(self.raw_image).astype(np.float32)
+        leftx = self.fitted_param['left_fitx']
+        rightx = self.fitted_param['right_fitx']
+
+        sigma = 80
+        # coef=1/np.sqrt(2*np.pi*sigma**2)
+        coef = 1
+
+        for x in range(new_image.shape[1]):
+            new_image[:, x] = coef*left_on * np.exp(-(x - leftx) ** 2 / (2 * sigma ** 2)) + coef*right_on * np.exp(
+                -(x - rightx) ** 2 / (2 * sigma ** 2))
+
+        return new_image
+
+
     def transform(self, X, y=None):
 
         left_fitx = self.fitted_param['left_fitx']
@@ -776,7 +794,7 @@ class LaneFinder(BaseEstimator, TransformerMixin):
 
         self.out_img[self.lane_coords['lefty'], self.lane_coords['leftx']] = [255, 0, 0]
         self.out_img[self.lane_coords['righty'], self.lane_coords['rightx']] = [0, 0, 255]
-        plt.imshow(self.raw_image, cmap='gray', hold=True)
+        plt.imshow(self.raw_image, cmap='gray')
         plt.imshow(self.out_img)
         plt.plot(left_fitx, ploty, color='yellow')
         plt.plot(right_fitx, ploty, color='yellow')
