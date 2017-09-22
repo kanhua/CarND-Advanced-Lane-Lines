@@ -450,6 +450,8 @@ class LaneFinder(BaseEstimator, TransformerMixin):
 
     def fit(self, X, y=None):
 
+        assert X.ndim <= 2
+
         self.raw_image = np.copy(X)
 
         self._reset_out_img(X)
@@ -538,8 +540,9 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         if np.any(sep_d<=0):
             return False
 
-        if (np.max(sep_d)-np.min(sep_d))>np.mean(sep_d)*ratio_thres:
-            return False
+        print("warning: _check_lane_separation being hacked for debugging!")
+        #if (np.max(sep_d)-np.min(sep_d))>np.mean(sep_d)*ratio_thres:
+        #    return False
 
         return True
 
@@ -767,6 +770,12 @@ class LaneFinder(BaseEstimator, TransformerMixin):
 
     def transform(self, X, y=None):
 
+        assert X.ndim<=2
+
+        if self.fitted_param is None:
+            raise ValueError("Not fitted yet.")
+
+
         left_fitx = self.fitted_param['left_fitx']
         right_fitx = self.fitted_param['right_fitx']
         ploty = self.fitted_param['ploty']
@@ -778,6 +787,7 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         # Recast the x and y points into usable format for cv2.fillPoly()
         pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
         pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
+
         pts = np.hstack((pts_left, pts_right))
 
         # Draw the lane onto the warped blank image
@@ -802,6 +812,69 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         plt.ylim(720, 0)
         plt.savefig(savefile)
         plt.close()
+
+
+class MultiPassLaneFinder(BaseEstimator, TransformerMixin):
+
+    def __init__(self):
+
+        self.lf=LaneFinder()
+
+
+    def fit(self, X, y=None):
+
+        yw_image,_=yellow_white_luv(X)
+
+        self.lf.fit(yw_image)
+        left_g_img=self.lf.gaussian_filter(left_on=True,right_on=False)
+
+
+        left_threshold=0.5
+        lab_img = cv2.cvtColor(X, cv2.COLOR_RGB2LAB)
+        b_img_sobel = abs_sobel_thresh(lab_img[:, :, 2], orient='x',
+                                 sobel_kernel=5, thresh=(10, 100), to_gray=False)
+
+        b_img=b_img_sobel*left_g_img
+
+        luv_img = cv2.cvtColor(X, cv2.COLOR_RGB2LUV)
+        sobel_img = abs_sobel_thresh(luv_img[:, :, 0], orient='x', sobel_kernel=5, thresh=(10, 80), to_gray=False)
+
+        right_g_img=self.lf.gaussian_filter(left_on=False,right_on=True)
+        right_threshold=0.7
+
+        l_img=sobel_img*right_g_img
+
+
+        fitted_img=l_img+b_img
+
+        fitted_img[fitted_img>=right_threshold]=1
+        fitted_img[fitted_img<right_threshold]=0
+
+        fitted_img=fitted_img.astype(np.uint8)
+
+        plt.imshow(fitted_img)
+        plt.savefig("fitted_img.png")
+        plt.close()
+
+        #self.lf.fit(fitted_img)
+        nlf=LaneFinder()
+
+        self.lf.visualize(fitted_img)
+
+        self.fitted_img=fitted_img
+
+        return self
+
+    def transform(self,X,y=None):
+
+        self.fit(X)
+
+        return self.lf.transform(self.fitted_img)
+
+
+
+
+
 
 
 if __name__ == "__main__":
