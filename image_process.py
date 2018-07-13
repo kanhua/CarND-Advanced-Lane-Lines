@@ -540,9 +540,9 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         if np.any(sep_d<=0):
             return False
 
-        print("warning: _check_lane_separation being hacked for debugging!")
-        #if (np.max(sep_d)-np.min(sep_d))>np.mean(sep_d)*ratio_thres:
-        #    return False
+        #print("warning: _check_lane_separation being hacked for debugging!")
+        if (np.max(sep_d)-np.min(sep_d))> (np.mean(sep_d)*ratio_thres):
+            return False
 
         return True
 
@@ -757,7 +757,7 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         leftx = self.fitted_param['left_fitx']
         rightx = self.fitted_param['right_fitx']
 
-        sigma = 80
+        sigma = 50
         # coef=1/np.sqrt(2*np.pi*sigma**2)
         coef = 1
 
@@ -812,6 +812,7 @@ class LaneFinder(BaseEstimator, TransformerMixin):
         plt.ylim(720, 0)
         plt.savefig(savefile)
         plt.close()
+        return self.out_img
 
 
 class MultiPassLaneFinder(BaseEstimator, TransformerMixin):
@@ -870,6 +871,15 @@ class MultiPassLaneFinder(BaseEstimator, TransformerMixin):
         self.fit(X)
 
         return self.lf.transform(self.fitted_img)
+
+
+    def fit_transform(self, X, y=None, **fit_params):
+
+
+        return self.transform(X)
+
+
+
 
 
 

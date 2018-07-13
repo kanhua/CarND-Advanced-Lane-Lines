@@ -140,6 +140,31 @@ class MyTestCase(unittest.TestCase):
             output_fname = join("./output_images", fparent + "_fp.jpg")
             cv2.imwrite(output_fname, stacked_img)
 
+    def test_run_through_test_images_with_gaussian(self):
+        """
+        Test the full pipeline of lane detection and labeling
+
+        :return:
+        """
+
+        mlf = MultiPassLaneFinder()
+        pip = Pipeline([('cam', self.camcal),
+                        ('pers', PerspectiveTransformer()), ('lane', mlf),
+                        ('inv_pst', PerspectiveTransformer(inv_transform=True))])
+
+        for idx, f in enumerate(self.files):
+            _, fname = split(f)
+            fparent, ext = splitext(fname)
+            image = cv2.imread(f)
+            transformed_img = pip.fit_transform(image)
+            left_curverad = mlf.lf.left_curverad_m
+            right_curverad = mlf.lf.right_curverad_m
+            dev = mlf.lf.deviation_m
+
+            stacked_img = stack_lane_line(image, transformed_img, left_curverad, right_curverad, dev)
+            output_fname = join("./output_images", fparent + "_gp.jpg")
+            cv2.imwrite(output_fname, stacked_img)
+
     def test_lane_fitting(self):
         """
         Test the results of LaneFinder class
